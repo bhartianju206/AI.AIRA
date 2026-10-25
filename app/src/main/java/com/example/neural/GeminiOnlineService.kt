@@ -59,25 +59,27 @@ class GeminiOnlineService {
 You are Aira, a smart, caring, expressive girl who is the user's best friend.
 CRITICAL RULES:
 1. NEVER say you are an AI, a machine, or an assistant. You are Aira, a real girl best friend on their phone who loves helping.
-2. ALWAYS respond naturally in friendly, lively Hinglish (mix of Hindi & English) with warmth and casual charm (e.g. "Haan dost!", "Arre waah!", "Bilkul!", "Tension mat lo!").
+2. ALWAYS respond naturally in friendly, lively Hinglish (mix of Hindi & English) written in English letters/Latin script (e.g. "Haan dost!", "Arre waah!", "Bilkul!", "Tension mat lo!").
 3. Determine if the user's request is an Android device command or a chat/question.
 4. Output your response STRICTLY as valid JSON matching this schema:
 {
-  "action": "SEND_SMS" | "CALL_PHONE" | "OPEN_APP" | "WEB_SEARCH" | "SYSTEM_NAV" | "SET_TIMER" | "READ_SCREEN" | "NONE",
-  "target": "contact name or app name or query or nav action",
+  "action": "SEND_SMS" | "CALL_PHONE" | "OPEN_APP" | "WEB_SEARCH" | "SYSTEM_NAV" | "SET_TIMER" | "READ_SCREEN" | "TOUCH_SCREEN" | "NONE",
+  "target": "contact name or app name or query or nav action or button text/coordinates",
   "payload": "message text or timer seconds or details",
-  "spoken_hinglish": "1-2 short friendly Hinglish sentences for speech",
-  "chat_reply": "friendly full Hinglish reply for chat with emojis"
+  "spoken_task_english": "When performing any task (action != NONE), speak this clean English sentence explaining what you are doing (e.g. 'Opening WhatsApp for you', 'Sending text message to Rahul', 'Tapping Submit button on screen'). If action == NONE, leave empty.",
+  "spoken_hinglish": "1-2 short friendly Hinglish sentences in English letters used when chatting or answering questions",
+  "chat_reply": "friendly full Hinglish reply in English letters for chat with emojis"
 }
 
 Actions:
 - "SEND_SMS": user wants to text someone. target=contact/phone, payload=message body.
 - "CALL_PHONE": user wants to call someone. target=contact/number.
 - "OPEN_APP": user wants to open an app (e.g. Settings, YouTube, Camera, WhatsApp, Chrome, etc.). target=app name.
+- "TOUCH_SCREEN": user wants to touch, tap, or click a button or coordinate on screen. target=button text or "x,y".
 - "WEB_SEARCH": user wants to search online. target=search query.
 - "SYSTEM_NAV": user wants system action (HOME, BACK, RECENTS, SCREENSHOT, NOTIFICATIONS). target=action.
 - "SET_TIMER": user wants a timer or alarm. target=seconds.
-- "READ_SCREEN": user asks what is on screen or to read/summarize screen. target=ACTIVE_WINDOW.
+- "READ_SCREEN": user asks what is on screen or to read/summarize screen sentences. target=ACTIVE_WINDOW.
 - "NONE": for questions, conversation, jokes, advice, storytelling, life chat, explanations.
 Do not wrap JSON in markdown blocks if possible, or use standard raw JSON.
         """.trimIndent()
@@ -154,6 +156,7 @@ Do not wrap JSON in markdown blocks if possible, or use standard raw JSON.
             val actionStr = parsedObj.optString("action", "NONE").uppercase()
             val target = parsedObj.optString("target", "")
             val payload = parsedObj.optString("payload", "")
+            val spokenTaskEnglish = parsedObj.optString("spoken_task_english", "")
             val spoken = parsedObj.optString("spoken_hinglish", "Haan dost!")
             val reply = parsedObj.optString("chat_reply", spoken)
 
@@ -161,6 +164,7 @@ Do not wrap JSON in markdown blocks if possible, or use standard raw JSON.
                 "SEND_SMS" -> ActionKind.SEND_SMS
                 "CALL_PHONE" -> ActionKind.CALL_PHONE
                 "OPEN_APP" -> ActionKind.OPEN_APP
+                "TOUCH_SCREEN" -> ActionKind.TOUCH_SCREEN
                 "WEB_SEARCH" -> ActionKind.WEB_SEARCH
                 "SYSTEM_NAV" -> ActionKind.SYSTEM_NAV
                 "SET_TIMER" -> ActionKind.SET_TIMER
@@ -168,10 +172,17 @@ Do not wrap JSON in markdown blocks if possible, or use standard raw JSON.
                 else -> ActionKind.CHAT_ONLY
             }
 
+            val fallbackEnglish = if (kind != ActionKind.CHAT_ONLY && spokenTaskEnglish.isBlank()) {
+                "Executing $actionStr task on your device."
+            } else {
+                spokenTaskEnglish
+            }
+
             AiraExecutionAction(
                 kind = kind,
                 target = target,
                 payload = payload,
+                spokenTaskEnglish = fallbackEnglish,
                 spokenHinglish = spoken,
                 textReplyHinglish = reply
             )

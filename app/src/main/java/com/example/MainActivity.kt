@@ -144,6 +144,7 @@ fun AiraApp(
     val voiceState by viewModel.voiceState.collectAsState()
     val audioRms by viewModel.audioRms.collectAsState()
 
+    val isMuted by viewModel.isMuted.collectAsState()
     val isOnlineMode by viewModel.isOnlineMode.collectAsState()
     val effectiveApiKey by viewModel.effectiveApiKey.collectAsState()
 
@@ -295,6 +296,8 @@ fun AiraApp(
                     statusBanner = statusBanner,
                     isDarkTheme = isDarkTheme,
                     onToggleTheme = { viewModel.toggleTheme() },
+                    isMuted = isMuted,
+                    onToggleMute = { viewModel.toggleMute() },
                     isOnlineMode = isOnlineMode,
                     onToggleOnlineMode = { viewModel.toggleOnlineMode() },
                     effectiveApiKey = effectiveApiKey,
@@ -331,7 +334,10 @@ fun AiraApp(
                     onAbortExecution = { viewModel.cancelExecution() },
                     onOpenAccessibilitySettings = { viewModel.triggerAccessibilitySettings(context) },
                     onOpenRoutines = { selectedTab = 2 },
-                    onScanScreenNow = { viewModel.summarizeScreenNow(activity) }
+                    onScanScreenNow = { viewModel.summarizeScreenNow(activity) },
+                    onReadAllScreenSentences = { viewModel.readAllScreenSentences(activity) },
+                    onTouchElement = { element -> viewModel.touchScreenElement(element, activity) },
+                    onTouchCoordinates = { x, y -> viewModel.touchScreenCoordinates(x, y, activity) }
                 )
 
                 1 -> MemoryVaultScreen(

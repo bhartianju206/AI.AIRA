@@ -140,6 +140,26 @@ object RealDeviceExecutor {
                     true
                 }
 
+                ActionKind.TOUCH_SCREEN -> {
+                    val service = AiraAccessibilityService.instance.value
+                    if (service != null && AiraAccessibilityService.isConnected.value) {
+                        val coords = action.target.split(",", " ")
+                        if (coords.size >= 2 && coords[0].toFloatOrNull() != null && coords[1].toFloatOrNull() != null) {
+                            val x = coords[0].toFloat()
+                            val y = coords[1].toFloat()
+                            service.tapAtCoordinates(x, y)
+                        } else {
+                            service.findAndClick(action.target)
+                        }
+                    } else {
+                        val a11yIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        context.startActivity(a11yIntent)
+                        true
+                    }
+                }
+
                 ActionKind.READ_SCREEN -> {
                     if (action.target == "ACCESSIBILITY_SETTINGS") {
                         val a11yIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {

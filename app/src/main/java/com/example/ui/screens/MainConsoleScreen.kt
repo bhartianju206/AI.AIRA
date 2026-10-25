@@ -31,9 +31,13 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.ScreenShare
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -70,6 +74,7 @@ import com.example.data.model.MessageSender
 import com.example.ui.components.GestureControlPad
 import com.example.ui.components.NeuralCoreOrb
 import com.example.ui.components.ScreenReaderHUD
+import com.example.ui.screens.ScreenShareDialog
 import com.example.ui.theme.AiraAmber
 import com.example.ui.theme.AiraCyan
 import com.example.ui.theme.AiraGreen
@@ -82,6 +87,8 @@ fun MainConsoleScreen(
     statusBanner: String,
     isDarkTheme: Boolean,
     onToggleTheme: () -> Unit,
+    isMuted: Boolean = false,
+    onToggleMute: () -> Unit = {},
     isOnlineMode: Boolean,
     onToggleOnlineMode: () -> Unit,
     effectiveApiKey: String,
@@ -103,10 +110,14 @@ fun MainConsoleScreen(
     onOpenAccessibilitySettings: () -> Unit,
     onOpenRoutines: () -> Unit,
     onScanScreenNow: () -> Unit,
+    onReadAllScreenSentences: () -> Unit = {},
+    onTouchElement: (String) -> Unit = {},
+    onTouchCoordinates: (Float, Float) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
     var showApiKeyDialog by remember { mutableStateOf(false) }
+    var showScreenShareDialog by remember { mutableStateOf(false) }
 
     val surfaceColor = MaterialTheme.colorScheme.surface
     val surfaceElevated = MaterialTheme.colorScheme.surfaceVariant
@@ -232,6 +243,42 @@ fun MainConsoleScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
+                                // Screen Share & Auto-Touch Button
+                                IconButton(
+                                    onClick = { showScreenShareDialog = true },
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(AiraCyan.copy(alpha = 0.2f))
+                                        .border(1.dp, AiraCyan.copy(alpha = 0.6f), CircleShape)
+                                        .testTag("screen_share_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ScreenShare,
+                                        contentDescription = "Screen Share & Touch",
+                                        tint = AiraCyan,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+
+                                // Mute / Unmute Voice Button
+                                IconButton(
+                                    onClick = onToggleMute,
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isMuted) AiraAmber.copy(alpha = 0.2f) else surfaceElevated)
+                                        .border(1.dp, if (isMuted) AiraAmber else borderColor, CircleShape)
+                                        .testTag("mute_toggle_button")
+                                ) {
+                                    Icon(
+                                        imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                                        contentDescription = if (isMuted) "Unmute Aira" else "Mute Aira",
+                                        tint = if (isMuted) AiraAmber else AiraPink,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+
                                 // Dark / Light Mode Toggle Button
                                 IconButton(
                                     onClick = onToggleTheme,
@@ -275,13 +322,13 @@ fun MainConsoleScreen(
                                         .background(
                                             if (grantedPermissionsCount == totalPermissionsCount)
                                                 AiraGreen.copy(alpha = 0.2f)
-                                            else AiraAmber.copy(alpha = 0.2f)
+                                             else AiraAmber.copy(alpha = 0.2f)
                                         )
                                         .border(
                                             1.dp,
                                             if (grantedPermissionsCount == totalPermissionsCount)
                                                 AiraGreen.copy(alpha = 0.6f)
-                                            else AiraAmber.copy(alpha = 0.6f),
+                                             else AiraAmber.copy(alpha = 0.6f),
                                             RoundedCornerShape(8.dp)
                                         )
                                         .clickable(onClick = onOpenPermissionWindow)
@@ -497,6 +544,8 @@ fun MainConsoleScreen(
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                QuickHinglishChip("🖥️ Screen Share & Touch") { showScreenShareDialog = true }
+                QuickHinglishChip("🔊 Read Every Sentence") { onReadAllScreenSentences() }
                 QuickHinglishChip("💬 Mom ko message karo") { onSubmitCommand("Mom ko message karo ki 10 minute me aa raha hoon") }
                 QuickHinglishChip("👀 Screen padh ke batao") { onScanScreenNow() }
                 QuickHinglishChip("⚙️ Settings kholo") { onSubmitCommand("open Settings") }
@@ -702,6 +751,20 @@ fun MainConsoleScreen(
                         Text("Cancel", color = textSecondary)
                     }
                 }
+            )
+        }
+
+        // Live Screen Share & Auto-Touch Dialog
+        if (showScreenShareDialog) {
+            ScreenShareDialog(
+                snapshot = screenSnapshot,
+                isAccessibilityEnabled = isAccessibilityEnabled,
+                onDismiss = { showScreenShareDialog = false },
+                onRefreshScreen = onScanScreenNow,
+                onReadAllSentences = onReadAllScreenSentences,
+                onTouchElement = onTouchElement,
+                onTouchCoordinates = onTouchCoordinates,
+                onOpenAccessibilitySettings = onOpenAccessibilitySettings
             )
         }
     }

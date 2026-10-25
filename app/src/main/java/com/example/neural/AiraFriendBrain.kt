@@ -14,6 +14,7 @@ enum class ActionKind {
     CALL_PHONE,
     OPEN_APP,
     READ_SCREEN,
+    TOUCH_SCREEN,
     WEB_SEARCH,
     SYSTEM_NAV,
     SET_TIMER,
@@ -25,6 +26,7 @@ data class AiraExecutionAction(
     val target: String = "",
     val payload: String = "",
     val spokenHinglish: String,
+    val spokenTaskEnglish: String = "",
     val textReplyHinglish: String
 )
 
@@ -53,6 +55,7 @@ class AiraFriendBrain(private val repository: MemoryRepository) {
                 kind = ActionKind.SEND_SMS,
                 target = resolvedRecipient,
                 payload = message,
+                spokenTaskEnglish = "Opening message composer to send SMS to $resolvedRecipient.",
                 spokenHinglish = "Haan bilkul dost! Main abhi $resolvedRecipient ke liye message khol rahi hoon: '$message'.",
                 textReplyHinglish = "Haan dost! Main abhi $resolvedRecipient ko message bhejne ke liye SMS client khol rahi hoon. Message: \"$message\""
             )
@@ -64,14 +67,31 @@ class AiraFriendBrain(private val repository: MemoryRepository) {
             return AiraExecutionAction(
                 kind = ActionKind.CALL_PHONE,
                 target = contact,
+                spokenTaskEnglish = "Opening phone dialer to call $contact.",
                 spokenHinglish = "Haanji, abhi $contact ko call mila rahi hoon!",
                 textReplyHinglish = "Abhi $contact ke liye dialer khol rahi hoon, call connect ho raha hai dost!"
             )
         }
 
-        // 3. Reading / Summarizing screen
+        // 3. Touch / Click button anywhere on screen
+        if (lower.startsWith("touch ") || lower.startsWith("click ") || lower.startsWith("tap ") ||
+            lower.contains("touch karo") || lower.contains("click karo") || lower.contains("button dabao") ||
+            lower.contains("tap karo") || lower.contains("screen pe click")
+        ) {
+            val target = extractTouchTarget(trimmed)
+            return AiraExecutionAction(
+                kind = ActionKind.TOUCH_SCREEN,
+                target = target,
+                spokenTaskEnglish = "Tapping $target on screen.",
+                spokenHinglish = "Screen par '$target' touch kar diya dost!",
+                textReplyHinglish = "Screen par '$target' button touch kar diya hai dost! ✨"
+            )
+        }
+
+        // 4. Reading / Summarizing screen & sentences
         if (lower.contains("read screen") || lower.contains("screen padh") || lower.contains("screen dekho") ||
-            lower.contains("what is on my screen") || lower.contains("kya likha hai") || lower.contains("summarize screen")
+            lower.contains("what is on my screen") || lower.contains("kya likha hai") || lower.contains("summarize screen") ||
+            lower.contains("read sentences") || lower.contains("sentence padho") || lower.contains("screen share")
         ) {
             val service = AiraAccessibilityService.instance.value
             return if (service != null && AiraAccessibilityService.isConnected.value) {
@@ -81,10 +101,16 @@ class AiraFriendBrain(private val repository: MemoryRepository) {
                 } else {
                     "Screen par active window dikh raha hai dost, par abhi koi readable text nahi mila."
                 }
+                val englishSummary = if (snapshot.readableTexts.isNotEmpty()) {
+                    "Reading active screen sentences: " + snapshot.readableTexts.take(3).joinToString(". ")
+                } else {
+                    "Inspecting active screen. No visible text nodes detected."
+                }
                 AiraExecutionAction(
                     kind = ActionKind.READ_SCREEN,
                     target = "ACTIVE_WINDOW",
                     payload = summary,
+                    spokenTaskEnglish = englishSummary,
                     spokenHinglish = summary,
                     textReplyHinglish = summary
                 )
@@ -92,69 +118,76 @@ class AiraFriendBrain(private val repository: MemoryRepository) {
                 AiraExecutionAction(
                     kind = ActionKind.READ_SCREEN,
                     target = "ACCESSIBILITY_SETTINGS",
+                    spokenTaskEnglish = "Please enable accessibility permission so I can read your screen and touch buttons.",
                     spokenHinglish = "Arre dost, mujhe tumhari screen dekhne ke liye Accessibility permission chahiye hogi! Chalo main settings khol deti hoon, AIRA ko ON kar do na!",
                     textReplyHinglish = "Arre dost, mujhe tumhari screen dekhne ke liye Accessibility permission chahiye hogi! Main settings khol rahi hoon, AIRA AI ko ON kar do please!"
                 )
             }
         }
 
-        // 4. Open Settings
+        // 5. Open Settings
         if (lower.contains("open settings") || lower.contains("settings kholo") || lower.contains("setting khol do")) {
             return AiraExecutionAction(
                 kind = ActionKind.OPEN_APP,
                 target = "SETTINGS",
+                spokenTaskEnglish = "Opening device settings.",
                 spokenHinglish = "Ji dost! Main device settings khol rahi hoon.",
                 textReplyHinglish = "Lo dost, maine Settings open kar di hai!"
             )
         }
 
-        // 5. Open YouTube
+        // 6. Open YouTube
         if (lower.contains("youtube") || lower.contains("gaana chalao") || lower.contains("video chalao")) {
             return AiraExecutionAction(
                 kind = ActionKind.OPEN_APP,
                 target = "YOUTUBE",
+                spokenTaskEnglish = "Launching YouTube.",
                 spokenHinglish = "Arre waah, YouTube chala rahi hoon! Mast video dekho aur chill karo.",
                 textReplyHinglish = "YouTube launch kar rahi hoon dost, enjoy karo!"
             )
         }
 
-        // 6. Open Camera / Take Photo
+        // 7. Open Camera / Take Photo
         if (lower.contains("camera") || lower.contains("photo khincho") || lower.contains("selfie")) {
             return AiraExecutionAction(
                 kind = ActionKind.OPEN_APP,
                 target = "CAMERA",
+                spokenTaskEnglish = "Opening camera.",
                 spokenHinglish = "Camera open kar rahi hoon dost! Smile karo!",
                 textReplyHinglish = "Camera ready hai dost, mast photo lo!"
             )
         }
 
-        // 7. Open WhatsApp
+        // 8. Open WhatsApp
         if (lower.contains("whatsapp")) {
             return AiraExecutionAction(
                 kind = ActionKind.OPEN_APP,
                 target = "WHATSAPP",
+                spokenTaskEnglish = "Launching WhatsApp.",
                 spokenHinglish = "WhatsApp khol rahi hoon dost!",
                 textReplyHinglish = "WhatsApp open kar diya hai dost!"
             )
         }
 
-        // 8. Search Web / Google
+        // 9. Search Web / Google
         if (lower.startsWith("search ") || lower.startsWith("google ") || lower.contains("search karo")) {
             val query = trimmed.removePrefix("search ").removePrefix("Search ").removePrefix("google ").removePrefix("Google ").trim()
             return AiraExecutionAction(
                 kind = ActionKind.WEB_SEARCH,
                 target = query,
                 payload = query,
+                spokenTaskEnglish = "Searching Google for $query.",
                 spokenHinglish = "Main Google pe '$query' search kar rahi hoon dost!",
                 textReplyHinglish = "Web search open kar rahi hoon: \"$query\""
             )
         }
 
-        // 9. Navigation: Home, Back, Recents, Screenshot
+        // 10. Navigation: Home, Back, Recents, Screenshot
         if (lower.contains("go home") || lower == "home" || lower.contains("home screen") || lower.contains("home jao")) {
             return AiraExecutionAction(
                 kind = ActionKind.SYSTEM_NAV,
                 target = "HOME",
+                spokenTaskEnglish = "Navigating to home screen.",
                 spokenHinglish = "Home screen par le chal rahi hoon dost!",
                 textReplyHinglish = "Home screen par navigate kar diya dost!"
             )
@@ -164,6 +197,7 @@ class AiraFriendBrain(private val repository: MemoryRepository) {
             return AiraExecutionAction(
                 kind = ActionKind.SYSTEM_NAV,
                 target = "BACK",
+                spokenTaskEnglish = "Pressing back button.",
                 spokenHinglish = "Back kar diya dost!",
                 textReplyHinglish = "Back button press kar diya dost!"
             )
@@ -173,6 +207,7 @@ class AiraFriendBrain(private val repository: MemoryRepository) {
             return AiraExecutionAction(
                 kind = ActionKind.SYSTEM_NAV,
                 target = "RECENTS",
+                spokenTaskEnglish = "Opening recent applications overview.",
                 spokenHinglish = "Recent apps khol rahi hoon dost!",
                 textReplyHinglish = "Recent apps screen khol diya hai dost!"
             )
@@ -182,30 +217,47 @@ class AiraFriendBrain(private val repository: MemoryRepository) {
             return AiraExecutionAction(
                 kind = ActionKind.SYSTEM_NAV,
                 target = "SCREENSHOT",
+                spokenTaskEnglish = "Taking screenshot.",
                 spokenHinglish = "Screenshot le rahi hoon dost!",
                 textReplyHinglish = "Screenshot capture trigger kar diya dost!"
             )
         }
 
-        // 10. Timer / Alarm
+        // 11. Timer / Alarm
         if (lower.contains("timer") || lower.contains("alarm")) {
             val seconds = extractTimerSeconds(trimmed)
             return AiraExecutionAction(
                 kind = ActionKind.SET_TIMER,
                 target = "$seconds",
                 payload = "${seconds / 60} minute",
+                spokenTaskEnglish = "Setting countdown timer for $seconds seconds.",
                 spokenHinglish = "Haan dost, main timer set kar rahi hoon!",
                 textReplyHinglish = "Timer app me time set kar diya hai dost!"
             )
         }
 
-        // 11. Conversational Friend Chit-Chat (Naturally like a real girl best friend in Hinglish)
+        // 12. Conversational Friend Chit-Chat (Naturally like a real girl best friend in Hinglish)
         val chitChatReply = generateFriendChitChat(trimmed)
         return AiraExecutionAction(
             kind = ActionKind.CHAT_ONLY,
+            spokenTaskEnglish = "",
             spokenHinglish = chitChatReply,
             textReplyHinglish = chitChatReply
         )
+    }
+
+    private fun extractTouchTarget(input: String): String {
+        val lower = input.lowercase()
+        return when {
+            lower.startsWith("touch ") -> input.substring(6).trim()
+            lower.startsWith("click ") -> input.substring(6).trim()
+            lower.startsWith("tap ") -> input.substring(4).trim()
+            lower.contains("button") -> {
+                val idx = lower.indexOf("button")
+                input.substring(0, idx).trim().split(" ").lastOrNull() ?: "Button"
+            }
+            else -> input.split(" ").lastOrNull() ?: "Button"
+        }
     }
 
     private fun generateFriendChitChat(input: String): String {

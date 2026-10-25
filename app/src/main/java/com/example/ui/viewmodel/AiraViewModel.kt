@@ -72,11 +72,13 @@ class AiraViewModel(
     private val _statusBanner = MutableStateFlow("Aira Online Mode Active • Google Gemini Ready")
     val statusBanner: StateFlow<String> = _statusBanner.asStateFlow()
 
-    // Voice State
+    // Voice State & Mute
     val voiceState: StateFlow<VoiceState> = voiceController?.voiceState
         ?: MutableStateFlow(VoiceState.IDLE).asStateFlow()
     val audioRms: StateFlow<Float> = voiceController?.audioRms
         ?: MutableStateFlow(0f).asStateFlow()
+    val isMuted: StateFlow<Boolean> = voiceController?.isMuted
+        ?: MutableStateFlow(false).asStateFlow()
 
     // Database streams
     val memories: StateFlow<List<AiraMemory>> = repository.allMemories
@@ -94,6 +96,11 @@ class AiraViewModel(
 
     fun toggleTheme() {
         _isDarkTheme.value = !_isDarkTheme.value
+    }
+
+    fun toggleMute() {
+        val muted = voiceController?.toggleMute() ?: false
+        _statusBanner.value = if (muted) "Aira voice muted 🔇" else "Aira voice unmuted 🔊"
     }
 
     fun toggleOnlineMode() {
@@ -151,8 +158,13 @@ class AiraViewModel(
                 action = friendBrain.processFriendInteraction(query, context)
             }
 
-            // Speak in natural Hinglish
-            voiceController?.speak(action.spokenHinglish)
+            // Speak: When performing a task, speak English; in chatting/voice message, speak Hinglish
+            val speechToDeliver = if (action.kind != ActionKind.CHAT_ONLY && action.spokenTaskEnglish.isNotBlank()) {
+                action.spokenTaskEnglish
+            } else {
+                action.spokenHinglish
+            }
+            voiceController?.speak(speechToDeliver)
 
             // ACTUALLY execute the real Android task on device
             var success = false
@@ -174,7 +186,7 @@ class AiraViewModel(
             )
             _chatMessages.value = _chatMessages.value + airaMsg
 
-            _statusBanner.value = "Aira: ${action.spokenHinglish.take(45)}..."
+            _statusBanner.value = "Aira: ${speechToDeliver.take(45)}..."
             _isExecuting.value = false
 
             // Audit log
@@ -235,6 +247,102 @@ class AiraViewModel(
 
     fun summarizeScreenNow(activity: Activity?) {
         submitCommand("Screen padh ke batao kya likha hai", activity)
+    }
+
+    fun readAllScreenSentences(activity: Activity?) {
+        val service = AiraAccessibilityService.instance.value
+        if (service != null && AiraAccessibilityService.isConnected.value) {
+            val snapshot = service.captureActiveScreen()
+            val sentences = snapshot.readableTexts
+            if (sentences.isNotEmpty()) {
+                val fullTextToSpeak = "Reading screen sentences: " + sentences.joinToString(". ")
+                voiceController?.speak(fullTextToSpeak)
+
+                val chatReply = "Maine tumhari screen ke saare sentences read kar liye dost:\n\n" +
+                    sentences.mapIndexed { idx, s -> "${idx + 1}. $s" }.joinToString("\n")
+
+                val msg = ChatMessage(
+                    sender = MessageSender.AIRA,
+                    text = chatReply,
+                    actionSummary = "SCREEN_SHARE_READ",
+                    actionType = "READ_SCREEN"
+                )
+                _chatMessages.value = _chatMessages.value + msg
+                _statusBanner.value = "Aira: Reading ${sentences.size} sentences on screen..."
+            } else {
+                voiceController?.speak("No readable sentences detected on the active screen.")
+                _statusBanner.value = "No visible sentences found on screen."
+            }
+        } else {
+            activity?.let { triggerAccessibilitySettings(it) }
+            voiceController?.speak("Please enable accessibility permission to read screen sentences.")
+            _statusBanner.value = "Accessibility permission required for screen reading."
+        }
+    }
+
+    fun touchScreenElement(target: String, activity: Activity?) {
+        val service = AiraAccessibilityService.instance.value
+        if (service != null && AiraAccessibilityService.isConnected.value) {
+            voiceController?.speak("Tapping $target on screen.")
+            val success = service.findAndClick(target)
+
+            val textReply = if (success) {
+                "Screen par '$target' button touch kar diya dost! ✨"
+            } else {
+                "Screen par '$target' dhundhne ki koshish ki dost, par match nahi hua."
+            }
+
+            val msg = ChatMessage(
+                sender = MessageSender.AIRA,
+                text = textReply,
+                actionSummary = "TOUCH_SCREEN: $target",
+                actionType = "TOUCH_SCREEN"
+            )
+            _chatMessages.value = _chatMessages.value + msg
+            _statusBanner.value = "Aira: Tapped $target"
+
+            viewModelScope.launch {
+                repository.logAudit(
+                    actionType = "TOUCH_SCREEN",
+                    targetApp = target,
+                    summary = "Touch action on $target",
+                    status = if (success) "SUCCESS" else "FAILED"
+                )
+            }
+        } else {
+            activity?.let { triggerAccessibilitySettings(it) }
+            voiceController?.speak("Please enable accessibility permission to touch buttons.")
+        }
+    }
+
+    fun touchScreenCoordinates(x: Float, y: Float, activity: Activity?) {
+        val service = AiraAccessibilityService.instance.value
+        if (service != null && AiraAccessibilityService.isConnected.value) {
+            voiceController?.speak("Tapping screen at coordinate ${x.toInt()}, ${y.toInt()}.")
+            val success = service.tapAtCoordinates(x, y)
+
+            val textReply = "Screen coordinate (${x.toInt()}, ${y.toInt()}) par touch kar diya dost! 🎯"
+            val msg = ChatMessage(
+                sender = MessageSender.AIRA,
+                text = textReply,
+                actionSummary = "TOUCH_COORDINATE: (${x.toInt()}, ${y.toInt()})",
+                actionType = "TOUCH_SCREEN"
+            )
+            _chatMessages.value = _chatMessages.value + msg
+            _statusBanner.value = "Aira: Tapped at (${x.toInt()}, ${y.toInt()})"
+
+            viewModelScope.launch {
+                repository.logAudit(
+                    actionType = "TOUCH_COORDINATE",
+                    targetApp = "SCREEN_TAP",
+                    summary = "Tapped at (${x.toInt()}, ${y.toInt()})",
+                    status = if (success) "SUCCESS" else "FAILED"
+                )
+            }
+        } else {
+            activity?.let { triggerAccessibilitySettings(it) }
+            voiceController?.speak("Please enable accessibility permission to touch screen coordinates.")
+        }
     }
 
     override fun onCleared() {

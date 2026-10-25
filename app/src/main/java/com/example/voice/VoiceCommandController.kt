@@ -29,6 +29,9 @@ class VoiceCommandController(
     private var tts: TextToSpeech? = null
     private var isTtsReady = false
 
+    private val _isMuted = MutableStateFlow(false)
+    val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
+
     private val _voiceState = MutableStateFlow(VoiceState.IDLE)
     val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
 
@@ -48,6 +51,21 @@ class VoiceCommandController(
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
                 setRecognitionListener(this@VoiceCommandController)
             }
+        }
+    }
+
+    fun toggleMute(): Boolean {
+        _isMuted.value = !_isMuted.value
+        if (_isMuted.value) {
+            stopSpeaking()
+        }
+        return _isMuted.value
+    }
+
+    fun setMuted(muted: Boolean) {
+        _isMuted.value = muted
+        if (muted) {
+            stopSpeaking()
         }
     }
 
@@ -83,11 +101,12 @@ class VoiceCommandController(
     }
 
     fun speak(text: String) {
+        if (_isMuted.value) return
         if (isTtsReady && tts != null) {
             _voiceState.value = VoiceState.SPEAKING
             // Friendly natural female voice pitch and pace
-            tts?.setPitch(1.15f)
-            tts?.setSpeechRate(1.02f)
+            tts?.setPitch(1.20f)
+            tts?.setSpeechRate(0.98f)
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "AIRA_TTS_${System.currentTimeMillis()}")
         }
     }
@@ -101,22 +120,37 @@ class VoiceCommandController(
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            val indianLocale = Locale("en", "IN")
+            // Set Hindi (India) locale so English letters & Hinglish are spoken with an authentic Hindi accent
             val hindiLocale = Locale("hi", "IN")
+            val indianEnglishLocale = Locale("en", "IN")
 
-            val avail = tts?.isLanguageAvailable(indianLocale)
-            if (avail == TextToSpeech.LANG_AVAILABLE || avail == TextToSpeech.LANG_COUNTRY_AVAILABLE) {
-                tts?.language = indianLocale
+            val hindiAvail = tts?.isLanguageAvailable(hindiLocale)
+            if (hindiAvail == TextToSpeech.LANG_AVAILABLE || hindiAvail == TextToSpeech.LANG_COUNTRY_AVAILABLE) {
+                tts?.language = hindiLocale
             } else {
-                val hindiAvail = tts?.isLanguageAvailable(hindiLocale)
-                if (hindiAvail == TextToSpeech.LANG_AVAILABLE || hindiAvail == TextToSpeech.LANG_COUNTRY_AVAILABLE) {
-                    tts?.language = hindiLocale
+                val indianAvail = tts?.isLanguageAvailable(indianEnglishLocale)
+                if (indianAvail == TextToSpeech.LANG_AVAILABLE || indianAvail == TextToSpeech.LANG_COUNTRY_AVAILABLE) {
+                    tts?.language = indianEnglishLocale
                 } else {
-                    tts?.language = Locale.US
+                    tts?.language = Locale("hi")
                 }
             }
-            tts?.setPitch(1.15f)
-            tts?.setSpeechRate(1.02f)
+
+            // Attempt to choose a female voice with Hindi or Indian locale
+            try {
+                val bestVoice = tts?.voices?.firstOrNull { voice ->
+                    (voice.locale.language == "hi" || voice.locale.country == "IN") &&
+                        voice.name.contains("female", ignoreCase = true)
+                } ?: tts?.voices?.firstOrNull { voice ->
+                    voice.locale.language == "hi" || voice.locale.country == "IN"
+                }
+                if (bestVoice != null) {
+                    tts?.voice = bestVoice
+                }
+            } catch (_: Exception) {}
+
+            tts?.setPitch(1.20f)
+            tts?.setSpeechRate(0.98f)
             isTtsReady = true
         }
     }
