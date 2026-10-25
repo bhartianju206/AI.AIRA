@@ -126,17 +126,6 @@ object PermissionManager {
                 category = "ALERTS"
             ),
             PermissionItem(
-                id = "biometrics",
-                title = "Hardware Biometric Vault",
-                description = "AndroidKeyStore AES-256 cryptographic vault protection for autonomous message dispatch and panic locks.",
-                technicalName = "android.permission.USE_BIOMETRIC",
-                icon = Icons.Default.Fingerprint,
-                isGranted = isBio,
-                isCritical = true,
-                actionLabel = if (isBio) "Secured" else "Configure Device Lock",
-                category = "SECURITY"
-            ),
-            PermissionItem(
                 id = "packages",
                 title = "Installed Applications Query",
                 description = "Permits AIRA to autonomously launch targeted third-party messaging, camera, and system apps.",

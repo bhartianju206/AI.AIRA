@@ -82,7 +82,6 @@ fun PermissionCenterModal(
     onDismiss: () -> Unit,
     onRequestAudio: () -> Unit,
     onRequestNotification: () -> Unit,
-    onTestBiometric: () -> Unit,
     onGrantAll: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -289,7 +288,6 @@ fun PermissionCenterModal(
                                     "audio" -> onRequestAudio()
                                     "overlay" -> PermissionManager.openOverlaySettings(context)
                                     "notifications" -> onRequestNotification()
-                                    "biometrics" -> onTestBiometric()
                                     else -> PermissionManager.openAppSettings(context)
                                 }
                             }

@@ -5,8 +5,9 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.CryptoVault
 import com.example.data.MemoryRepository
 import com.example.data.db.AiraDatabase
-import com.example.neural.EncryptedNeuralEngine
-import com.example.neural.IntentType
+import com.example.neural.ActionKind
+import com.example.neural.AiraFriendBrain
+import com.example.neural.RealDeviceExecutor
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -36,16 +37,24 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `verify neural engine intent planning offline`() = runBlocking {
+    fun `verify Aira friend brain Hinglish processing and task execution`() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val db = AiraDatabase.getDatabase(context)
         val repo = MemoryRepository(db.airaDao())
-        val engine = EncryptedNeuralEngine(repo)
+        val brain = AiraFriendBrain(repo)
 
-        val plan = engine.analyzeAndPlan("Text Mom that I will be late")
-        assertEquals(IntentType.SEND_MESSAGE, plan.intentType)
-        assertTrue(plan.requiresBiometric)
-        assertEquals(0L, plan.networkEgressBytes)
-        assertTrue(plan.steps.isNotEmpty())
+        // Test Hinglish friend chit-chat
+        val chatAction = brain.processFriendInteraction("Kaisi ho Aira?", context)
+        assertEquals(ActionKind.CHAT_ONLY, chatAction.kind)
+        assertTrue(chatAction.spokenHinglish.contains("mast") || chatAction.spokenHinglish.contains("dost"))
+
+        // Test real SMS command extraction
+        val smsAction = brain.processFriendInteraction("Mom ko message karo ki 10 minute me aa raha hoon", context)
+        assertEquals(ActionKind.SEND_SMS, smsAction.kind)
+        assertTrue(smsAction.payload.contains("10 minute") || smsAction.payload.isNotBlank())
+
+        // Test real execution intent generation
+        val success = RealDeviceExecutor.executeAction(context, smsAction)
+        assertTrue(success)
     }
 }

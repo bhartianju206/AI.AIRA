@@ -25,14 +25,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -41,7 +45,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,37 +65,32 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.accessibility.ScreenSnapshot
-import com.example.neural.AutonomousExecutionPlan
-import com.example.ui.components.CyberGridBackground
-import com.example.ui.components.ExecutionPlanCard
+import com.example.data.model.ChatMessage
+import com.example.data.model.MessageSender
 import com.example.ui.components.GestureControlPad
 import com.example.ui.components.NeuralCoreOrb
 import com.example.ui.components.ScreenReaderHUD
 import com.example.ui.theme.AiraAmber
 import com.example.ui.theme.AiraCyan
 import com.example.ui.theme.AiraGreen
+import com.example.ui.theme.AiraPink
 import com.example.ui.theme.AiraPurple
-import com.example.ui.theme.AiraRed
-import com.example.ui.theme.DarkBackground
-import com.example.ui.theme.DarkBorder
-import com.example.ui.theme.DarkSurface
-import com.example.ui.theme.DarkSurfaceCard
-import com.example.ui.theme.DarkSurfaceElevated
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
 import com.example.voice.VoiceState
 
 @Composable
 fun MainConsoleScreen(
     statusBanner: String,
+    isDarkTheme: Boolean,
+    onToggleTheme: () -> Unit,
+    isOnlineMode: Boolean,
+    onToggleOnlineMode: () -> Unit,
+    effectiveApiKey: String,
+    onSetCustomApiKey: (String) -> Unit,
     isAccessibilityEnabled: Boolean,
-    isVaultLocked: Boolean,
     isExecuting: Boolean,
-    currentStepIndex: Int,
-    activePlan: AutonomousExecutionPlan?,
     screenSnapshot: ScreenSnapshot,
     commandInput: String,
+    chatMessages: List<ChatMessage>,
     voiceState: VoiceState,
     audioRms: Float,
     grantedPermissionsCount: Int,
@@ -96,16 +100,25 @@ fun MainConsoleScreen(
     onSubmitCommand: (String?) -> Unit,
     onVoiceToggle: () -> Unit,
     onAbortExecution: () -> Unit,
-    onLockVault: () -> Unit,
-    onUnlockVault: () -> Unit,
     onOpenAccessibilitySettings: () -> Unit,
     onOpenRoutines: () -> Unit,
     onScanScreenNow: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
+    var showApiKeyDialog by remember { mutableStateOf(false) }
 
-    CyberGridBackground(modifier = modifier) {
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val surfaceElevated = MaterialTheme.colorScheme.surfaceVariant
+    val borderColor = MaterialTheme.colorScheme.outline
+    val textPrimary = MaterialTheme.colorScheme.onBackground
+    val textSecondary = MaterialTheme.colorScheme.onSurfaceVariant
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -115,27 +128,27 @@ fun MainConsoleScreen(
         ) {
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Hero Cyber Header Banner Card
+            // Friend Header Card with Online Mode Pill & Theme Switcher
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("hero_cyber_banner"),
-                colors = CardDefaults.cardColors(containerColor = DarkSurfaceCard),
+                    .testTag("hero_friend_banner"),
+                colors = CardDefaults.cardColors(containerColor = surfaceColor),
                 shape = RoundedCornerShape(20.dp),
                 border = CardDefaults.outlinedCardBorder().copy(
                     brush = Brush.horizontalGradient(
-                        listOf(AiraCyan.copy(alpha = 0.6f), AiraPurple.copy(alpha = 0.6f))
+                        listOf(AiraPurple.copy(alpha = 0.5f), AiraPink.copy(alpha = 0.5f))
                     )
                 )
             ) {
-                Box(modifier = Modifier.fillMaxWidth().height(115.dp)) {
+                Box(modifier = Modifier.fillMaxWidth().height(125.dp)) {
                     // Futuristic background art
                     Image(
                         painter = painterResource(id = R.drawable.aira_cyber_banner),
-                        contentDescription = "AIRA Neural Banner",
+                        contentDescription = "AIRA Banner",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
-                        alpha = 0.38f
+                        alpha = if (isDarkTheme) 0.32f else 0.16f
                     )
 
                     // Gradient overlay
@@ -144,12 +157,12 @@ fun MainConsoleScreen(
                             .fillMaxSize()
                             .background(
                                 Brush.verticalGradient(
-                                    listOf(Color.Transparent, DarkSurfaceCard.copy(alpha = 0.95f))
+                                    listOf(Color.Transparent, surfaceColor.copy(alpha = 0.92f))
                                 )
                             )
                     )
 
-                    // Content on top
+                    // Header content
                     Row(
                         modifier = Modifier
                             .fillMaxSize()
@@ -157,74 +170,124 @@ fun MainConsoleScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape)
+                                    .background(AiraPink.copy(alpha = 0.2f))
+                                    .border(1.5.dp, AiraPink, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "A",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = AiraPink,
+                                    fontSize = 22.sp
+                                )
+                            }
+                            Column {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isOnlineMode) AiraGreen else AiraCyan)
+                                    )
+                                    Text(
+                                        text = if (isOnlineMode) "AIRA ONLINE • GEMINI 3.5" else "AIRA OFFLINE • LOCAL CORE",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isOnlineMode) AiraGreen else (if (isDarkTheme) AiraCyan else AiraPurple),
+                                        letterSpacing = 1.2.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(
+                                    text = "Aira (Your Best Friend)",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textPrimary
+                                )
+                                Text(
+                                    text = if (isOnlineMode) "Google API Key Active • Unlimited Tasks" else "100% On-Device Privacy (0 B Egress)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = textSecondary,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+
+                        // Right actions: Online Toggle + Theme Toggle + Permissions
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalAlignment = Alignment.End
+                        ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Box(
+                                // Dark / Light Mode Toggle Button
+                                IconButton(
+                                    onClick = onToggleTheme,
                                     modifier = Modifier
-                                        .size(8.dp)
+                                        .size(34.dp)
                                         .clip(CircleShape)
-                                        .background(if (isVaultLocked) AiraRed else AiraGreen)
-                                )
-                                Text(
-                                    text = "AIRA • OFFLINE NEURAL CORE",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = AiraCyan,
-                                    letterSpacing = 1.4.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            Text(
-                                text = "Autonomous Device Agent",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = "Hardware AES-256 GCM • 0.0 B Egress",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary,
-                                fontSize = 10.sp
-                            )
-                        }
-
-                        // Right actions: Permissions Badge + Vault Lock Button
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // Permission Gateway Button
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(
-                                        if (grantedPermissionsCount == totalPermissionsCount)
-                                            AiraGreen.copy(alpha = 0.2f)
-                                        else AiraAmber.copy(alpha = 0.2f)
-                                    )
-                                    .border(
-                                        1.dp,
-                                        if (grantedPermissionsCount == totalPermissionsCount)
-                                            AiraGreen.copy(alpha = 0.6f)
-                                        else AiraAmber.copy(alpha = 0.6f),
-                                        RoundedCornerShape(10.dp)
-                                    )
-                                    .clickable(onClick = onOpenPermissionWindow)
-                                    .padding(horizontal = 9.dp, vertical = 6.dp)
-                                    .testTag("open_permissions_button")
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                        .background(surfaceElevated)
+                                        .border(1.dp, borderColor, CircleShape)
+                                        .testTag("theme_toggle_button")
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Security,
-                                        contentDescription = "Permissions",
-                                        tint = if (grantedPermissionsCount == totalPermissionsCount) AiraGreen else AiraAmber,
-                                        modifier = Modifier.size(14.dp)
+                                        imageVector = if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
+                                        contentDescription = "Toggle Theme",
+                                        tint = if (isDarkTheme) AiraAmber else AiraPurple,
+                                        modifier = Modifier.size(16.dp)
                                     )
+                                }
+
+                                // Key Settings Dialog Button
+                                IconButton(
+                                    onClick = { showApiKeyDialog = true },
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(surfaceElevated)
+                                        .border(1.dp, borderColor, CircleShape)
+                                        .testTag("api_key_dialog_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Key,
+                                        contentDescription = "Configure Google API Key",
+                                        tint = if (effectiveApiKey.isNotBlank()) AiraGreen else AiraAmber,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+
+                                // Permission Gateway Button
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            if (grantedPermissionsCount == totalPermissionsCount)
+                                                AiraGreen.copy(alpha = 0.2f)
+                                            else AiraAmber.copy(alpha = 0.2f)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (grantedPermissionsCount == totalPermissionsCount)
+                                                AiraGreen.copy(alpha = 0.6f)
+                                            else AiraAmber.copy(alpha = 0.6f),
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable(onClick = onOpenPermissionWindow)
+                                        .padding(horizontal = 7.dp, vertical = 5.dp)
+                                        .testTag("open_permissions_button")
+                                ) {
                                     Text(
                                         text = "$grantedPermissionsCount/$totalPermissionsCount",
                                         color = if (grantedPermissionsCount == totalPermissionsCount) AiraGreen else AiraAmber,
@@ -234,29 +297,41 @@ fun MainConsoleScreen(
                                 }
                             }
 
-                            // Panic Lockdown Button
-                            IconButton(
-                                onClick = { if (isVaultLocked) onUnlockVault() else onLockVault() },
+                            // Online Mode Pill Switcher
+                            Box(
                                 modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
+                                    .clip(RoundedCornerShape(8.dp))
                                     .background(
-                                        if (isVaultLocked) AiraRed.copy(alpha = 0.25f)
-                                        else DarkSurfaceElevated
+                                        if (isOnlineMode) AiraGreen.copy(alpha = 0.18f)
+                                        else AiraPurple.copy(alpha = 0.18f)
                                     )
                                     .border(
                                         1.dp,
-                                        if (isVaultLocked) AiraRed else DarkBorder,
-                                        CircleShape
+                                        if (isOnlineMode) AiraGreen.copy(alpha = 0.5f)
+                                        else AiraPurple.copy(alpha = 0.5f),
+                                        RoundedCornerShape(8.dp)
                                     )
-                                    .testTag("vault_lock_button")
+                                    .clickable(onClick = onToggleOnlineMode)
+                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    .testTag("online_mode_toggle")
                             ) {
-                                Icon(
-                                    imageVector = if (isVaultLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                                    contentDescription = if (isVaultLocked) "Unlock Vault" else "Lock Vault",
-                                    tint = if (isVaultLocked) AiraRed else AiraCyan,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isOnlineMode) Icons.Default.Cloud else Icons.Default.CloudOff,
+                                        contentDescription = null,
+                                        tint = if (isOnlineMode) AiraGreen else AiraPurple,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(
+                                        text = if (isOnlineMode) "Online (Gemini)" else "Offline (Local)",
+                                        color = if (isOnlineMode) AiraGreen else AiraPurple,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
@@ -265,29 +340,10 @@ fun MainConsoleScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Real-time Telemetry Bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(DarkSurfaceCard)
-                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TelemetryPill("EGRESS", "0.0 B", AiraGreen)
-                TelemetryPill("ENGINE", "100% Local", AiraCyan)
-                TelemetryPill("VAULT", "AES-256", AiraPurple)
-                TelemetryPill("LATENCY", "8.2 ms", TextPrimary)
-            }
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            // Glowing Interactive Neural Core Orb
+            // Interactive Neural Core Orb
             NeuralCoreOrb(
                 isExecuting = isExecuting,
-                isLocked = isVaultLocked,
+                isLocked = false,
                 voiceState = voiceState,
                 audioRms = audioRms,
                 onClick = {
@@ -299,41 +355,172 @@ fun MainConsoleScreen(
                 }
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // Holographic Status Subtitle
+            // Spoken State Indicator
             Text(
                 text = when {
-                    isVaultLocked -> "VAULT LOCKED • BIOMETRIC VERIFICATION REQUIRED"
-                    voiceState == VoiceState.LISTENING -> "AURAL RECOGNITION ACTIVE • SPEAK NOW..."
-                    voiceState == VoiceState.SPEAKING -> "AIRA SYNTHESIZING VOICE RESPONSE..."
-                    isExecuting -> "AUTONOMOUS REASONING & EXECUTION IN PROGRESS"
-                    else -> "TAP OR HOLD TO ENGAGE OFFLINE VOICE COMMAND"
+                    voiceState == VoiceState.LISTENING -> "BOLO DOST, MAIN SUN RAHI HOON..."
+                    voiceState == VoiceState.SPEAKING -> "AIRA BOL RAHI HAI..."
+                    isExecuting -> "TASK COMPLETE KAR RAHI HOON..."
+                    else -> "AIRA IS HERE • TAP KARKE BAAT KARO"
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = when {
-                    isVaultLocked -> AiraRed
                     voiceState == VoiceState.LISTENING -> AiraGreen
                     isExecuting -> AiraCyan
-                    else -> TextMuted
+                    else -> textSecondary
                 },
-                letterSpacing = 1.2.sp,
+                letterSpacing = 1.1.sp,
                 fontWeight = FontWeight.Bold
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Futuristic Command Input Bar
+            // Live Friend Chat Log Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("friend_chat_card"),
+                colors = CardDefaults.cardColors(containerColor = surfaceColor),
+                shape = RoundedCornerShape(18.dp),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = androidx.compose.ui.graphics.SolidColor(borderColor)
+                )
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "CONVERSATION WITH AIRA",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isDarkTheme) AiraPink else AiraPurple,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                        Text(
+                            text = if (isOnlineMode) "Google Gemini 3.5 Online" else "Local Hinglish",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isOnlineMode) AiraGreen else textSecondary,
+                            fontSize = 10.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Chat messages list
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        chatMessages.takeLast(4).forEach { msg ->
+                            val isUser = msg.sender == MessageSender.USER
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.88f)
+                                        .clip(
+                                            RoundedCornerShape(
+                                                topStart = 14.dp,
+                                                topEnd = 14.dp,
+                                                bottomStart = if (isUser) 14.dp else 2.dp,
+                                                bottomEnd = if (isUser) 2.dp else 14.dp
+                                            )
+                                        )
+                                        .background(
+                                            if (isUser) {
+                                                if (isDarkTheme) AiraPurple.copy(alpha = 0.25f)
+                                                else AiraPurple.copy(alpha = 0.12f)
+                                            } else {
+                                                surfaceElevated
+                                            }
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (isUser) AiraPurple.copy(alpha = 0.4f) else borderColor,
+                                            RoundedCornerShape(14.dp)
+                                        )
+                                        .padding(10.dp)
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = if (isUser) "You" else "Aira 💕",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isUser) AiraCyan else AiraPink,
+                                            fontSize = 10.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = msg.text,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = textPrimary,
+                                            fontSize = 12.sp,
+                                            lineHeight = 17.sp
+                                        )
+                                        if (msg.actionSummary != null && msg.actionSummary != "NONE" && msg.actionSummary != "CHAT_ONLY") {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(AiraGreen.copy(alpha = 0.15f))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = "✓ Action Executed: ${msg.actionSummary}",
+                                                    color = AiraGreen,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Natural Hinglish Quick Prompt Chips
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(DarkSurfaceCard)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                QuickHinglishChip("💬 Mom ko message karo") { onSubmitCommand("Mom ko message karo ki 10 minute me aa raha hoon") }
+                QuickHinglishChip("👀 Screen padh ke batao") { onScanScreenNow() }
+                QuickHinglishChip("⚙️ Settings kholo") { onSubmitCommand("open Settings") }
+                QuickHinglishChip("🎵 YouTube chalao") { onSubmitCommand("YouTube chalao") }
+                QuickHinglishChip("📸 Camera open karo") { onSubmitCommand("Camera kholo") }
+                QuickHinglishChip("💡 Mujhe ek mast idea do") { onSubmitCommand("Aira mujhe koi mast creative idea do") }
+                QuickHinglishChip("😊 Kaisi ho Aira?") { onSubmitCommand("Kaisi ho Aira?") }
+                QuickHinglishChip("😂 Ek joke sunao") { onSubmitCommand("Aira koi mast joke sunao") }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Command / Chat Input Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(surfaceColor)
                     .border(
                         1.dp,
                         if (voiceState == VoiceState.LISTENING) AiraGreen
-                        else AiraCyan.copy(alpha = 0.45f),
-                        RoundedCornerShape(16.dp)
+                        else if (isDarkTheme) AiraCyan.copy(alpha = 0.45f)
+                        else AiraPurple.copy(alpha = 0.45f),
+                        RoundedCornerShape(18.dp)
                     )
                     .padding(horizontal = 6.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -343,8 +530,8 @@ fun MainConsoleScreen(
                     onValueChange = onCommandChange,
                     placeholder = {
                         Text(
-                            "Type or speak: text Mom, read screen, launch apps...",
-                            color = TextMuted,
+                            if (isOnlineMode) "Google Gemini online active • Kuch bhi bolo..." else "Aira se baat karo ya koi kaam bolo...",
+                            color = textSecondary,
                             fontSize = 12.sp
                         )
                     },
@@ -354,8 +541,8 @@ fun MainConsoleScreen(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Color.Transparent,
                         unfocusedBorderColor = Color.Transparent,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
+                        focusedTextColor = textPrimary,
+                        unfocusedTextColor = textPrimary
                     ),
                     maxLines = 2
                 )
@@ -368,11 +555,11 @@ fun MainConsoleScreen(
                         .clip(CircleShape)
                         .background(
                             if (voiceState == VoiceState.LISTENING) AiraGreen.copy(alpha = 0.25f)
-                            else DarkSurfaceElevated
+                            else surfaceElevated
                         )
                         .border(
                             1.dp,
-                            if (voiceState == VoiceState.LISTENING) AiraGreen else DarkBorder,
+                            if (voiceState == VoiceState.LISTENING) AiraGreen else borderColor,
                             CircleShape
                         )
                         .testTag("voice_command_button")
@@ -380,7 +567,7 @@ fun MainConsoleScreen(
                     Icon(
                         imageVector = if (voiceState == VoiceState.LISTENING) Icons.Default.Stop else Icons.Default.Mic,
                         contentDescription = "Voice Input",
-                        tint = if (voiceState == VoiceState.LISTENING) AiraGreen else AiraCyan,
+                        tint = if (voiceState == VoiceState.LISTENING) AiraGreen else (if (isDarkTheme) AiraCyan else AiraPurple),
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -394,47 +581,23 @@ fun MainConsoleScreen(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(CircleShape)
-                        .background(if (commandInput.isNotBlank()) AiraCyan else DarkSurfaceElevated)
+                        .background(
+                            if (commandInput.isNotBlank()) {
+                                if (isDarkTheme) AiraCyan else AiraPurple
+                            } else surfaceElevated
+                        )
                         .testTag("send_command_button")
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Execute Command",
-                        tint = if (commandInput.isNotBlank()) DarkBackground else TextMuted,
+                        contentDescription = "Send to Aira",
+                        tint = if (commandInput.isNotBlank()) Color.White else textSecondary,
                         modifier = Modifier.size(18.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Quick Prompt Chips
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                QuickCommandChip("💬 Text Mom: On my way") { onSubmitCommand("Text Mom that I'm on my way") }
-                QuickCommandChip("🔍 Read & Summarize Screen") { onSubmitCommand("read screen and summarize") }
-                QuickCommandChip("⚙️ Open Settings") { onSubmitCommand("open Settings") }
-                QuickCommandChip("📸 Capture Screenshot") { onSubmitCommand("take screenshot") }
-                QuickCommandChip("🏠 Return Home") { onSubmitCommand("go home") }
-                QuickCommandChip("🔒 Panic Lock Vault") { onSubmitCommand("panic lock vault") }
-            }
-
             Spacer(modifier = Modifier.height(18.dp))
-
-            // Active Execution Plan Card
-            if (activePlan != null) {
-                ExecutionPlanCard(
-                    plan = activePlan,
-                    isExecuting = isExecuting,
-                    currentStepIndex = currentStepIndex,
-                    onAbort = onAbortExecution
-                )
-                Spacer(modifier = Modifier.height(18.dp))
-            }
 
             // Screen Reader HUD
             ScreenReaderHUD(
@@ -450,54 +613,117 @@ fun MainConsoleScreen(
             GestureControlPad(
                 onCircleGesture = { onScanScreenNow() },
                 onSwipeUp = { onOpenRoutines() },
-                onSwipeDown = { onLockVault() },
+                onSwipeDown = { onSubmitCommand("Aira mujhse baat karo") },
                 onDoubleTap = { onAbortExecution() },
                 onLongPress = { onVoiceToggle() }
             )
 
             Spacer(modifier = Modifier.height(110.dp))
         }
+
+        // Google Gemini API Key Dialog
+        if (showApiKeyDialog) {
+            var inputKey by remember { mutableStateOf(effectiveApiKey) }
+
+            AlertDialog(
+                onDismissRequest = { showApiKeyDialog = false },
+                containerColor = surfaceColor,
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Key, contentDescription = null, tint = AiraGreen)
+                        Text("Google Gemini API Key", color = textPrimary)
+                    }
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "Online Mode uses Google's latest Gemini 3.5 Flash model for reasoning, Q&A, and advanced autonomous tasks.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = textSecondary
+                        )
+
+                        if (effectiveApiKey.isNotBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(AiraGreen.copy(alpha = 0.12f))
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    text = "✓ Google API Key Detected & Ready",
+                                    color = AiraGreen,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = inputKey,
+                            onValueChange = { inputKey = it },
+                            label = { Text("Google API Key") },
+                            placeholder = { Text("AIzaSy...") },
+                            modifier = Modifier.fillMaxWidth().testTag("api_key_input"),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AiraCyan,
+                                unfocusedBorderColor = borderColor,
+                                focusedTextColor = textPrimary,
+                                unfocusedTextColor = textPrimary
+                            ),
+                            maxLines = 2
+                        )
+
+                        Text(
+                            text = "Keys can also be configured via Secrets panel in AI Studio (GEMINI_API_KEY).",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = textSecondary,
+                            fontSize = 10.sp
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            onSetCustomApiKey(inputKey.trim())
+                            showApiKeyDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AiraCyan),
+                        modifier = Modifier.testTag("save_api_key_button")
+                    ) {
+                        Text("Save & Connect", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showApiKeyDialog = false }) {
+                        Text("Cancel", color = textSecondary)
+                    }
+                }
+            )
+        }
     }
 }
 
 @Composable
-private fun TelemetryPill(label: String, value: String, color: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = TextMuted,
-            fontSize = 9.sp,
-            letterSpacing = 1.sp
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.labelSmall,
-            color = color,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 11.sp
-        )
-    }
-}
-
-@Composable
-private fun QuickCommandChip(
+private fun QuickHinglishChip(
     text: String,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(10.dp))
-            .background(DarkSurfaceElevated)
-            .border(1.dp, DarkBorder, RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 7.dp)
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelSmall,
-            color = TextPrimary,
+            color = MaterialTheme.colorScheme.onBackground,
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium
         )

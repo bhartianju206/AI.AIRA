@@ -30,6 +30,7 @@ import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -55,8 +56,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.MemoryRepository
 import com.example.data.db.AiraDatabase
-import com.example.neural.EncryptedNeuralEngine
-import com.example.security.BiometricAuthManager
+import com.example.neural.AiraFriendBrain
 import com.example.security.PermissionItem
 import com.example.security.PermissionManager
 import com.example.ui.screens.AuditLogScreen
@@ -65,10 +65,8 @@ import com.example.ui.screens.MainConsoleScreen
 import com.example.ui.screens.MemoryVaultScreen
 import com.example.ui.screens.PermissionCenterModal
 import com.example.ui.theme.AiraCyan
+import com.example.ui.theme.AiraPurple
 import com.example.ui.theme.AiraTheme
-import com.example.ui.theme.DarkBackground
-import com.example.ui.theme.DarkBorder
-import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.TextMuted
 import com.example.ui.viewmodel.AiraViewModel
 import com.example.voice.VoiceCommandController
@@ -85,8 +83,7 @@ class MainActivity : ComponentActivity() {
 
         val database = AiraDatabase.getDatabase(this)
         val repository = MemoryRepository(database.airaDao())
-        val neuralEngine = EncryptedNeuralEngine(repository)
-        val biometricAuthManager = BiometricAuthManager(this)
+        val friendBrain = AiraFriendBrain(repository)
 
         voiceController = VoiceCommandController(this) { command ->
             viewModel.submitCommand(command, this)
@@ -94,16 +91,17 @@ class MainActivity : ComponentActivity() {
 
         viewModel = AiraViewModel(
             repository = repository,
-            neuralEngine = neuralEngine,
-            biometricAuthManager = biometricAuthManager,
+            friendBrain = friendBrain,
             voiceController = voiceController
         )
 
         setContent {
-            AiraTheme {
+            val isDarkTheme by viewModel.isDarkTheme.collectAsState()
+            AiraTheme(isDarkTheme = isDarkTheme) {
                 AiraApp(
                     activity = this,
-                    viewModel = viewModel
+                    viewModel = viewModel,
+                    isDarkTheme = isDarkTheme
                 )
             }
         }
@@ -113,7 +111,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AiraApp(
     activity: ComponentActivity,
-    viewModel: AiraViewModel
+    viewModel: AiraViewModel,
+    isDarkTheme: Boolean
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -122,7 +121,7 @@ fun AiraApp(
     var showPermissionWindow by remember { mutableStateOf(false) }
     var permissionsList by remember { mutableStateOf(PermissionManager.getAllPermissions(context)) }
 
-    // Recheck permissions whenever the app resumes (e.g. after returning from settings)
+    // Recheck permissions whenever the app resumes
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -138,15 +137,15 @@ fun AiraApp(
     // State collections
     val statusBanner by viewModel.statusBanner.collectAsState()
     val isAccessibilityEnabled by viewModel.isAccessibilityConnected.collectAsState()
-    val isVaultLocked by viewModel.isVaultLocked.collectAsState()
     val isExecuting by viewModel.isExecuting.collectAsState()
-    val currentStepIndex by viewModel.currentStepIndex.collectAsState()
-    val activePlan by viewModel.activePlan.collectAsState()
     val screenSnapshot by viewModel.screenSnapshot.collectAsState()
     val commandInput by viewModel.commandInput.collectAsState()
+    val chatMessages by viewModel.chatMessages.collectAsState()
     val voiceState by viewModel.voiceState.collectAsState()
     val audioRms by viewModel.audioRms.collectAsState()
-    val biometricPolicy by viewModel.biometricPolicy.collectAsState()
+
+    val isOnlineMode by viewModel.isOnlineMode.collectAsState()
+    val effectiveApiKey by viewModel.effectiveApiKey.collectAsState()
 
     val memories by viewModel.memories.collectAsState()
     val auditLogs by viewModel.auditLogs.collectAsState()
@@ -180,7 +179,7 @@ fun AiraApp(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = DarkBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             NavigationBar(
                 modifier = Modifier
@@ -188,16 +187,18 @@ fun AiraApp(
                     .navigationBarsPadding()
                     .height(68.dp)
                     .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-                    .background(DarkSurface)
+                    .background(MaterialTheme.colorScheme.surface)
                     .border(
                         1.dp,
-                        DarkBorder,
+                        MaterialTheme.colorScheme.outline,
                         RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
                     )
                     .testTag("aira_bottom_navigation"),
-                containerColor = DarkSurface,
+                containerColor = MaterialTheme.colorScheme.surface,
                 tonalElevation = 8.dp
             ) {
+                val activeColor = if (isDarkTheme) AiraCyan else AiraPurple
+
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
@@ -208,11 +209,11 @@ fun AiraApp(
                             modifier = Modifier.size(22.dp)
                         )
                     },
-                    label = { Text("Console", fontSize = 11.sp) },
+                    label = { Text("Friend Aira", fontSize = 11.sp) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = DarkBackground,
-                        selectedTextColor = AiraCyan,
-                        indicatorColor = AiraCyan,
+                        selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                        selectedTextColor = activeColor,
+                        indicatorColor = activeColor,
                         unselectedIconColor = TextMuted,
                         unselectedTextColor = TextMuted
                     ),
@@ -229,11 +230,11 @@ fun AiraApp(
                             modifier = Modifier.size(22.dp)
                         )
                     },
-                    label = { Text("Vault", fontSize = 11.sp) },
+                    label = { Text("Memory", fontSize = 11.sp) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = DarkBackground,
-                        selectedTextColor = AiraCyan,
-                        indicatorColor = AiraCyan,
+                        selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                        selectedTextColor = activeColor,
+                        indicatorColor = activeColor,
                         unselectedIconColor = TextMuted,
                         unselectedTextColor = TextMuted
                     ),
@@ -250,11 +251,11 @@ fun AiraApp(
                             modifier = Modifier.size(22.dp)
                         )
                     },
-                    label = { Text("Routines", fontSize = 11.sp) },
+                    label = { Text("Tasks", fontSize = 11.sp) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = DarkBackground,
-                        selectedTextColor = AiraCyan,
-                        indicatorColor = AiraCyan,
+                        selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                        selectedTextColor = activeColor,
+                        indicatorColor = activeColor,
                         unselectedIconColor = TextMuted,
                         unselectedTextColor = TextMuted
                     ),
@@ -271,11 +272,11 @@ fun AiraApp(
                             modifier = Modifier.size(22.dp)
                         )
                     },
-                    label = { Text("Audit", fontSize = 11.sp) },
+                    label = { Text("Privacy", fontSize = 11.sp) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = DarkBackground,
-                        selectedTextColor = AiraCyan,
-                        indicatorColor = AiraCyan,
+                        selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                        selectedTextColor = activeColor,
+                        indicatorColor = activeColor,
                         unselectedIconColor = TextMuted,
                         unselectedTextColor = TextMuted
                     ),
@@ -292,13 +293,17 @@ fun AiraApp(
             when (selectedTab) {
                 0 -> MainConsoleScreen(
                     statusBanner = statusBanner,
+                    isDarkTheme = isDarkTheme,
+                    onToggleTheme = { viewModel.toggleTheme() },
+                    isOnlineMode = isOnlineMode,
+                    onToggleOnlineMode = { viewModel.toggleOnlineMode() },
+                    effectiveApiKey = effectiveApiKey,
+                    onSetCustomApiKey = { viewModel.setCustomApiKey(it) },
                     isAccessibilityEnabled = isAccessibilityEnabled,
-                    isVaultLocked = isVaultLocked,
                     isExecuting = isExecuting,
-                    currentStepIndex = currentStepIndex,
-                    activePlan = activePlan,
                     screenSnapshot = screenSnapshot,
                     commandInput = commandInput,
+                    chatMessages = chatMessages,
                     voiceState = voiceState,
                     audioRms = audioRms,
                     grantedPermissionsCount = permissionsList.count { it.isGranted },
@@ -324,17 +329,15 @@ fun AiraApp(
                         }
                     },
                     onAbortExecution = { viewModel.cancelExecution() },
-                    onLockVault = { viewModel.triggerLockdown() },
-                    onUnlockVault = { viewModel.unlockVault(activity) },
                     onOpenAccessibilitySettings = { viewModel.triggerAccessibilitySettings(context) },
                     onOpenRoutines = { selectedTab = 2 },
-                    onScanScreenNow = { viewModel.summarizeScreenNow() }
+                    onScanScreenNow = { viewModel.summarizeScreenNow(activity) }
                 )
 
                 1 -> MemoryVaultScreen(
                     memories = memories,
-                    biometricPolicy = biometricPolicy,
-                    onSetBiometricPolicy = { viewModel.setBiometricPolicy(it) },
+                    biometricPolicy = "Relaxed",
+                    onSetBiometricPolicy = { },
                     onSaveMemory = { key, rawValue, summary, category ->
                         viewModel.saveMemory(key, rawValue, summary, category)
                     },
@@ -369,11 +372,7 @@ fun AiraApp(
                             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                         }
                     },
-                    onTestBiometric = {
-                        viewModel.unlockVault(activity)
-                    },
                     onGrantAll = {
-                        // Progressively guide user through ungranted privileges
                         val ungranted = permissionsList.filter { !it.isGranted }
                         if (ungranted.any { it.id == "audio" }) {
                             audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)

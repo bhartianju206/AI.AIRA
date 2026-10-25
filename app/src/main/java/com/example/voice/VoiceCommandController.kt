@@ -60,7 +60,9 @@ class VoiceCommandController(
                 RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
             )
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+            // Support both Hindi and English for Hinglish input
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN")
+            putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("en-IN", "en-US"))
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra("android.speech.extra.PREFER_OFFLINE", true)
         }
@@ -83,6 +85,9 @@ class VoiceCommandController(
     fun speak(text: String) {
         if (isTtsReady && tts != null) {
             _voiceState.value = VoiceState.SPEAKING
+            // Friendly natural female voice pitch and pace
+            tts?.setPitch(1.15f)
+            tts?.setSpeechRate(1.02f)
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "AIRA_TTS_${System.currentTimeMillis()}")
         }
     }
@@ -96,7 +101,22 @@ class VoiceCommandController(
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            tts?.language = Locale.US
+            val indianLocale = Locale("en", "IN")
+            val hindiLocale = Locale("hi", "IN")
+
+            val avail = tts?.isLanguageAvailable(indianLocale)
+            if (avail == TextToSpeech.LANG_AVAILABLE || avail == TextToSpeech.LANG_COUNTRY_AVAILABLE) {
+                tts?.language = indianLocale
+            } else {
+                val hindiAvail = tts?.isLanguageAvailable(hindiLocale)
+                if (hindiAvail == TextToSpeech.LANG_AVAILABLE || hindiAvail == TextToSpeech.LANG_COUNTRY_AVAILABLE) {
+                    tts?.language = hindiLocale
+                } else {
+                    tts?.language = Locale.US
+                }
+            }
+            tts?.setPitch(1.15f)
+            tts?.setSpeechRate(1.02f)
             isTtsReady = true
         }
     }

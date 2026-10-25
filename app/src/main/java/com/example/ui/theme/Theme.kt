@@ -1,9 +1,9 @@
 package com.example.ui.theme
 
 import android.app.Activity
-import android.os.Build
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.toArgb
@@ -14,43 +14,70 @@ private val AiraDarkColorScheme = darkColorScheme(
     primary = AiraCyan,
     onPrimary = DarkBackground,
     primaryContainer = AiraCyanDark,
-    onPrimaryContainer = TextPrimary,
+    onPrimaryContainer = DarkTextPrimary,
     secondary = AiraPurple,
-    onSecondary = TextPrimary,
+    onSecondary = DarkTextPrimary,
     secondaryContainer = AiraPurpleDark,
-    onSecondaryContainer = TextPrimary,
+    onSecondaryContainer = DarkTextPrimary,
     tertiary = AiraGreen,
     onTertiary = DarkBackground,
     background = DarkBackground,
-    onBackground = TextPrimary,
+    onBackground = DarkTextPrimary,
     surface = DarkSurface,
-    onSurface = TextPrimary,
+    onSurface = DarkTextPrimary,
     surfaceVariant = DarkSurfaceElevated,
-    onSurfaceVariant = TextSecondary,
+    onSurfaceVariant = DarkTextSecondary,
     outline = DarkBorder,
     error = AiraRed,
-    onError = TextPrimary
+    onError = DarkTextPrimary
+)
+
+private val AiraLightColorScheme = lightColorScheme(
+    primary = AiraPurple,
+    onPrimary = LightSurface,
+    primaryContainer = LightSurfaceElevated,
+    onPrimaryContainer = AiraPurpleDark,
+    secondary = AiraPink,
+    onSecondary = LightSurface,
+    secondaryContainer = LightSurfaceElevated,
+    onSecondaryContainer = LightTextPrimary,
+    tertiary = AiraGreen,
+    onTertiary = LightSurface,
+    background = LightBackground,
+    onBackground = LightTextPrimary,
+    surface = LightSurface,
+    onSurface = LightTextPrimary,
+    surfaceVariant = LightSurfaceElevated,
+    onSurfaceVariant = LightTextSecondary,
+    outline = LightBorder,
+    error = AiraRed,
+    onError = LightSurface
 )
 
 @Composable
 fun AiraTheme(
+    isDarkTheme: Boolean = true,
     content: @Composable () -> Unit
 ) {
+    val colorScheme = if (isDarkTheme) AiraDarkColorScheme else AiraLightColorScheme
     val view = LocalView.current
+
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as? Activity)?.window
             if (window != null) {
-                window.statusBarColor = DarkBackground.toArgb()
-                window.navigationBarColor = DarkBackground.toArgb()
-                WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
-                WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = false
+                val bg = if (isDarkTheme) DarkBackground else LightBackground
+                window.statusBarColor = bg.toArgb()
+                window.navigationBarColor = bg.toArgb()
+                val controller = WindowCompat.getInsetsController(window, view)
+                controller.isAppearanceLightStatusBars = !isDarkTheme
+                controller.isAppearanceLightNavigationBars = !isDarkTheme
             }
         }
     }
 
     MaterialTheme(
-        colorScheme = AiraDarkColorScheme,
+        colorScheme = colorScheme,
         typography = Typography,
         content = content
     )

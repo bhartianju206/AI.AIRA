@@ -12,16 +12,14 @@ import com.example.data.MemoryRepository
 import com.example.data.model.AiraMemory
 import com.example.data.model.AuditLog
 import com.example.data.model.AutomationRoutine
-import com.example.neural.AutonomousExecutionPlan
-import com.example.neural.EncryptedNeuralEngine
-import com.example.neural.IntentType
-import com.example.neural.StepActionType
-import com.example.neural.StepStatus
-import com.example.security.BiometricAuthManager
+import com.example.data.model.ChatMessage
+import com.example.data.model.MessageSender
+import com.example.neural.ActionKind
+import com.example.neural.AiraFriendBrain
+import com.example.neural.GeminiOnlineService
+import com.example.neural.RealDeviceExecutor
 import com.example.voice.VoiceCommandController
 import com.example.voice.VoiceState
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -31,8 +29,8 @@ import kotlinx.coroutines.launch
 
 class AiraViewModel(
     private val repository: MemoryRepository,
-    private val neuralEngine: EncryptedNeuralEngine,
-    private val biometricAuthManager: BiometricAuthManager,
+    private val friendBrain: AiraFriendBrain,
+    private val geminiOnlineService: GeminiOnlineService = GeminiOnlineService(),
     private val voiceController: VoiceCommandController? = null
 ) : ViewModel() {
 
@@ -40,30 +38,41 @@ class AiraViewModel(
     val isAccessibilityConnected: StateFlow<Boolean> = AiraAccessibilityService.isConnected
     val screenSnapshot: StateFlow<ScreenSnapshot> = AiraAccessibilityService.latestScreenSnapshot
 
-    // Command & Plan
+    // Theme Mode Toggle (Dark Mode / Light Mode)
+    private val _isDarkTheme = MutableStateFlow(true)
+    val isDarkTheme: StateFlow<Boolean> = _isDarkTheme.asStateFlow()
+
+    // Online Mode / Google API Key State
+    private val _isOnlineMode = MutableStateFlow(true)
+    val isOnlineMode: StateFlow<Boolean> = _isOnlineMode.asStateFlow()
+
+    private val _customApiKey = MutableStateFlow("")
+    val customApiKey: StateFlow<String> = _customApiKey.asStateFlow()
+
+    private val _effectiveApiKey = MutableStateFlow("")
+    val effectiveApiKey: StateFlow<String> = _effectiveApiKey.asStateFlow()
+
+    // Command & Chat State
     private val _commandInput = MutableStateFlow("")
     val commandInput: StateFlow<String> = _commandInput.asStateFlow()
 
-    private val _activePlan = MutableStateFlow<AutonomousExecutionPlan?>(null)
-    val activePlan: StateFlow<AutonomousExecutionPlan?> = _activePlan.asStateFlow()
+    private val _chatMessages = MutableStateFlow<List<ChatMessage>>(
+        listOf(
+            ChatMessage(
+                sender = MessageSender.AIRA,
+                text = "Hey dost! Main Aira hoon, tumhari best friend. Maine Online Mode bhi activate kar diya hai with Google Gemini! Ab tum mujhse duniya ka koi bhi sawaal pucho ya phone ka koi bhi task bolo, main sab kar sakti hoon! 💕"
+            )
+        )
+    )
+    val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
 
     private val _isExecuting = MutableStateFlow(false)
     val isExecuting: StateFlow<Boolean> = _isExecuting.asStateFlow()
 
-    private val _currentStepIndex = MutableStateFlow(-1)
-    val currentStepIndex: StateFlow<Int> = _currentStepIndex.asStateFlow()
-
-    private val _statusBanner = MutableStateFlow("AIRA Encrypted Neural Engine Active • 0 B Egress")
+    private val _statusBanner = MutableStateFlow("Aira Online Mode Active • Google Gemini Ready")
     val statusBanner: StateFlow<String> = _statusBanner.asStateFlow()
 
-    // Security & Biometrics
-    private val _isVaultLocked = MutableStateFlow(false)
-    val isVaultLocked: StateFlow<Boolean> = _isVaultLocked.asStateFlow()
-
-    private val _biometricPolicy = MutableStateFlow("Strict") // "Strict" or "Balanced"
-    val biometricPolicy: StateFlow<String> = _biometricPolicy.asStateFlow()
-
-    // Voice
+    // Voice State
     val voiceState: StateFlow<VoiceState> = voiceController?.voiceState
         ?: MutableStateFlow(VoiceState.IDLE).asStateFlow()
     val audioRms: StateFlow<Float> = voiceController?.audioRms
@@ -79,7 +88,31 @@ class AiraViewModel(
     val routines: StateFlow<List<AutomationRoutine>> = repository.allRoutines
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    private var executionJob: Job? = null
+    init {
+        refreshEffectiveApiKey()
+    }
+
+    fun toggleTheme() {
+        _isDarkTheme.value = !_isDarkTheme.value
+    }
+
+    fun toggleOnlineMode() {
+        _isOnlineMode.value = !_isOnlineMode.value
+        _statusBanner.value = if (_isOnlineMode.value) {
+            "Aira Online Mode Active • Google Gemini Ready"
+        } else {
+            "Aira Offline Mode Active • 100% Local Privacy (0 B Egress)"
+        }
+    }
+
+    fun setCustomApiKey(key: String) {
+        _customApiKey.value = key
+        refreshEffectiveApiKey()
+    }
+
+    private fun refreshEffectiveApiKey() {
+        _effectiveApiKey.value = geminiOnlineService.getEffectiveApiKey(_customApiKey.value)
+    }
 
     fun onCommandInputChange(text: String) {
         _commandInput.value = text
@@ -90,149 +123,74 @@ class AiraViewModel(
         if (query.isBlank()) return
 
         _commandInput.value = ""
+
+        // Add user message to conversation
+        val userMsg = ChatMessage(sender = MessageSender.USER, text = query)
+        _chatMessages.value = _chatMessages.value + userMsg
+
         viewModelScope.launch {
-            _statusBanner.value = "Neural Engine analyzing: \"$query\"..."
-            val plan = neuralEngine.analyzeAndPlan(query)
-            _activePlan.value = plan
-            executePlan(plan, activity)
-        }
-    }
-
-    fun executePlan(plan: AutonomousExecutionPlan, activity: Activity? = null) {
-        executionJob?.cancel()
-        executionJob = viewModelScope.launch {
             _isExecuting.value = true
-            _statusBanner.value = "Executing Plan: ${plan.summary}"
+            _statusBanner.value = "Aira soch rahi hai..."
 
-            // Biometric Check if required
-            if (plan.requiresBiometric || _biometricPolicy.value == "Strict") {
-                if (activity != null) {
-                    _statusBanner.value = "Awaiting Biometric Authorization..."
-                    val authenticated = biometricAuthManager.authenticate(
-                        activity,
-                        title = "Authorize AIRA Autonomous Action",
-                        subtitle = plan.summary
-                    )
-                    if (!authenticated) {
-                        _statusBanner.value = "Action aborted: Biometric verification required"
-                        _isExecuting.value = false
-                        repository.logAudit(
-                            actionType = "BIOMETRIC_ABORTED",
-                            targetApp = "AIRA_CONTROLLER",
-                            summary = "User denied or failed biometric challenge for ${plan.intentType}",
-                            status = "BLOCKED"
-                        )
-                        return@launch
+            val context = activity?.applicationContext ?: return@launch
+            var action: com.example.neural.AiraExecutionAction? = null
+
+            // If Online Mode is enabled, try Google Gemini first
+            if (_isOnlineMode.value) {
+                val apiKey = geminiOnlineService.getEffectiveApiKey(_customApiKey.value)
+                if (apiKey.isNotBlank()) {
+                    val recentChat = _chatMessages.value.takeLast(4).map {
+                        Pair(if (it.sender == MessageSender.USER) "USER" else "MODEL", it.text)
                     }
+                    action = geminiOnlineService.queryGeminiOnline(query, apiKey, recentChat)
                 }
             }
 
-            // Step by step execution
-            val service = AiraAccessibilityService.instance.value
-            for (i in plan.steps.indices) {
-                _currentStepIndex.value = i
-                val step = plan.steps[i]
-                step.status = StepStatus.EXECUTING
-                _statusBanner.value = "Step ${step.stepNumber}/${plan.steps.size}: ${step.title}"
-
-                delay(600) // Visual & stabilization delay for human transparency
-
-                var stepSucceeded = true
-                val stepMessage: String
-
-                when (step.actionType) {
-                    StepActionType.GLOBAL_ACTION -> {
-                        val actionCode = when (step.target) {
-                            "GLOBAL_ACTION_HOME" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME
-                            "GLOBAL_ACTION_BACK" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK
-                            "GLOBAL_ACTION_RECENTS" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS
-                            "GLOBAL_ACTION_NOTIFICATIONS" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS
-                            "GLOBAL_ACTION_TAKE_SCREENSHOT" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT
-                            "GLOBAL_ACTION_LOCK_SCREEN" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN
-                            else -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK
-                        }
-                        stepSucceeded = service?.performGlobalAction(actionCode) ?: true
-                        stepMessage = if (service != null) "Global action ${step.target} dispatched" else "Simulated global ${step.target}"
-                    }
-                    StepActionType.OPEN_PACKAGE -> {
-                        val intent = activity?.packageManager?.getLaunchIntentForPackage(step.target)
-                        if (intent != null) {
-                            activity.startActivity(intent)
-                            stepMessage = "Launched package: ${step.target}"
-                        } else {
-                            stepMessage = "Package ${step.target} simulated launch"
-                        }
-                    }
-                    StepActionType.CLICK_NODE -> {
-                        stepSucceeded = service?.findAndClick(step.target) ?: true
-                        stepMessage = if (service != null) "Clicked node matching '${step.target}'" else "Simulated click on '${step.target}'"
-                    }
-                    StepActionType.SET_TEXT -> {
-                        stepSucceeded = service?.findAndSetText(step.target, step.param) ?: true
-                        stepMessage = "Entered text: \"${step.param}\""
-                    }
-                    StepActionType.SCROLL -> {
-                        val forward = step.target == "FORWARD"
-                        stepSucceeded = service?.performScroll(forward) ?: true
-                        stepMessage = "Scrolled ${if (forward) "down" else "up"}"
-                    }
-                    StepActionType.INSPECT_SCREEN -> {
-                        val snap = service?.captureActiveScreen()
-                        stepMessage = snap?.summaryText ?: "Screen hierarchy scanned"
-                    }
-                    StepActionType.SYSTEM_FEEDBACK -> {
-                        if (step.target == "KEYSTORE_LOCK") {
-                            _isVaultLocked.value = true
-                        } else if (step.target == "ENCRYPT_VAULT") {
-                            repository.savePreference(
-                                key = "learned_fact_${System.currentTimeMillis()}",
-                                rawValue = step.param,
-                                summary = step.param,
-                                category = "LEARNED_MEMORY"
-                            )
-                        } else if (step.target == "TTS_OUTPUT") {
-                            voiceController?.speak("Screen analyzed. All nodes processed locally with total privacy.")
-                        }
-                        stepMessage = "System feedback complete: ${step.target}"
-                    }
-                    StepActionType.CONFIRM_BIOMETRIC -> {
-                        stepMessage = "Biometric authenticated successfully"
-                    }
-                }
-
-                step.status = if (stepSucceeded) StepStatus.COMPLETED else StepStatus.FAILED
-                step.resultMessage = stepMessage
-
-                // Log audit for each major autonomous execution step
-                repository.logAudit(
-                    actionType = step.actionType.name,
-                    targetApp = step.target,
-                    summary = stepMessage,
-                    status = if (stepSucceeded) "VERIFIED_OFFLINE" else "FAILED"
-                )
-
-                delay(400)
+            // Fallback to offline friend brain if online returned null or offline mode
+            if (action == null) {
+                action = friendBrain.processFriendInteraction(query, context)
             }
 
+            // Speak in natural Hinglish
+            voiceController?.speak(action.spokenHinglish)
+
+            // ACTUALLY execute the real Android task on device
+            var success = false
+            if (activity != null) {
+                success = RealDeviceExecutor.executeAction(activity, action)
+            }
+
+            val replyText = if (action.kind != ActionKind.CHAT_ONLY && success) {
+                "${action.textReplyHinglish} ✨"
+            } else {
+                action.textReplyHinglish
+            }
+
+            val airaMsg = ChatMessage(
+                sender = MessageSender.AIRA,
+                text = replyText,
+                actionSummary = if (action.kind != ActionKind.CHAT_ONLY) action.kind.name else null,
+                actionType = action.kind.name
+            )
+            _chatMessages.value = _chatMessages.value + airaMsg
+
+            _statusBanner.value = "Aira: ${action.spokenHinglish.take(45)}..."
             _isExecuting.value = false
-            _currentStepIndex.value = plan.steps.size
-            _statusBanner.value = "Execution Completed • ${plan.steps.size} steps • Verified 0 B Egress"
-            voiceController?.speak("Task completed autonomously. 0 bytes network egress.")
+
+            // Audit log
+            repository.logAudit(
+                actionType = if (_isOnlineMode.value) "ONLINE_${action.kind.name}" else "LOCAL_${action.kind.name}",
+                targetApp = action.target.ifBlank { "AIRA_FRIEND" },
+                summary = action.textReplyHinglish,
+                status = if (success) "EXECUTED" else "CHAT"
+            )
         }
     }
 
     fun cancelExecution() {
-        executionJob?.cancel()
+        voiceController?.stopSpeaking()
         _isExecuting.value = false
-        _statusBanner.value = "Autonomous execution halted by user"
-        viewModelScope.launch {
-            repository.logAudit(
-                actionType = "USER_CANCELLED",
-                targetApp = "AIRA_CORE",
-                summary = "Autonomous task sequence aborted by user tap",
-                status = "VERIFIED_OFFLINE"
-            )
-        }
+        _statusBanner.value = "Ruk gayi dost! Batao aage kya karna hai?"
     }
 
     fun startVoiceCommand() {
@@ -250,39 +208,6 @@ class AiraViewModel(
         context.startActivity(intent)
     }
 
-    fun triggerLockdown() {
-        _isVaultLocked.value = true
-        _statusBanner.value = "AIRA Vault Locked • Biometric Key Required"
-        viewModelScope.launch {
-            repository.logAudit(
-                actionType = "VAULT_LOCKDOWN",
-                targetApp = "AIRA_SECURITY",
-                summary = "Security panic lockdown engaged manually",
-                status = "BIOMETRIC_APPROVED"
-            )
-        }
-    }
-
-    fun unlockVault(activity: Activity) {
-        viewModelScope.launch {
-            val success = biometricAuthManager.authenticate(
-                activity,
-                title = "Unlock AIRA Vault",
-                subtitle = "Biometric credential required"
-            )
-            if (success) {
-                _isVaultLocked.value = false
-                _statusBanner.value = "AIRA Vault Unlocked • Neural Engine Ready"
-                repository.logAudit(
-                    actionType = "VAULT_UNLOCKED",
-                    targetApp = "AIRA_SECURITY",
-                    summary = "Biometric challenge passed. Vault unlocked.",
-                    status = "BIOMETRIC_APPROVED"
-                )
-            }
-        }
-    }
-
     fun saveMemory(key: String, rawValue: String, summary: String, category: String) {
         viewModelScope.launch {
             repository.savePreference(key, rawValue, summary, category)
@@ -298,12 +223,8 @@ class AiraViewModel(
     fun purgeVault() {
         viewModelScope.launch {
             repository.purgeAllMemories()
-            _statusBanner.value = "All learned memories purged permanently."
+            _statusBanner.value = "Saari memories clear ho gayi dost!"
         }
-    }
-
-    fun setBiometricPolicy(policy: String) {
-        _biometricPolicy.value = policy
     }
 
     fun toggleRoutine(routine: AutomationRoutine) {
@@ -312,8 +233,8 @@ class AiraViewModel(
         }
     }
 
-    fun summarizeScreenNow() {
-        submitCommand("summarize screen")
+    fun summarizeScreenNow(activity: Activity?) {
+        submitCommand("Screen padh ke batao kya likha hai", activity)
     }
 
     override fun onCleared() {

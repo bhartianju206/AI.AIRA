@@ -180,25 +180,6 @@ private fun RoutineCard(
                             fontWeight = FontWeight.Bold
                         )
                     }
-                    if (routine.requiresBiometric) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = "Biometric Required",
-                                tint = AiraCyan,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Text(
-                                text = "Biometric",
-                                color = AiraCyan,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
                 }
 
                 Switch(

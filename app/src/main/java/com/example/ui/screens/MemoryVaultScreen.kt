@@ -143,28 +143,21 @@ fun MemoryVaultScreen(
                         )
 
                         Spacer(modifier = Modifier.height(14.dp))
-
-                        // Security policy row
-                        Text(
-                            text = "BIOMETRIC AUTHENTICATION POLICY",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TextMuted,
-                            letterSpacing = 1.sp
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            PolicyChip(
-                                label = "Strict (Always Confirm)",
-                                isSelected = biometricPolicy == "Strict",
-                                onClick = { onSetBiometricPolicy("Strict") }
+                            Icon(
+                                imageVector = Icons.Default.Shield,
+                                contentDescription = null,
+                                tint = AiraGreen,
+                                modifier = Modifier.size(16.dp)
                             )
-                            PolicyChip(
-                                label = "Balanced (Sensitive Only)",
-                                isSelected = biometricPolicy == "Balanced",
-                                onClick = { onSetBiometricPolicy("Balanced") }
+                            Text(
+                                text = "100% Local Device Privacy • No Biometric Lockouts",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = AiraGreen,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
