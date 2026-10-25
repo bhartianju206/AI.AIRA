@@ -1,0 +1,6 @@
+{
+  "name": "AIRA AI",
+  "description": "Offline autonomous AI assistant with encrypted local neural engine, accessibility automation, voice control, and biometric security.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

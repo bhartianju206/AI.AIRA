@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">AIRA AI</string>
+    <string name="accessibility_service_description">AIRA AI Accessibility Service enables autonomous device control, encrypted local screen reading, gesture execution, and hands-free assistance with strict 100% offline data privacy.</string>
+</resources>
