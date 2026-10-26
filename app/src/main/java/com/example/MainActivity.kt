@@ -1,76 +1,58 @@
 package com.example
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.automirrored.outlined.Chat
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.outlined.Bolt
-import androidx.compose.material.icons.outlined.Memory
-import androidx.compose.material.icons.outlined.Shield
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.data.AiraPreferences
 import com.example.data.MemoryRepository
 import com.example.data.db.AiraDatabase
 import com.example.neural.AiraFriendBrain
-import com.example.security.PermissionItem
+import com.example.screenshare.ScreenCaptureService
 import com.example.security.PermissionManager
-import com.example.ui.screens.AuditLogScreen
-import com.example.ui.screens.AutomationRoutinesSheet
-import com.example.ui.screens.MainConsoleScreen
+import com.example.ui.components.NoInternetDialog
 import com.example.ui.screens.ChatScreen
-import com.example.ui.screens.PermissionCenterModal
-import com.example.ui.theme.AiraCyan
-import com.example.ui.theme.AiraPurple
+import com.example.ui.screens.ScreenShareSheet
+import com.example.ui.screens.SettingsScreen
 import com.example.ui.theme.AiraTheme
-import com.example.ui.theme.TextMuted
 import com.example.ui.viewmodel.AiraViewModel
 import com.example.voice.VoiceCommandController
 import com.example.voice.VoiceState
+
+enum class AppDestination {
+    CHAT,
+    SETTINGS
+}
 
 class MainActivity : ComponentActivity() {
 
@@ -81,6 +63,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        val preferences = AiraPreferences(this)
         val database = AiraDatabase.getDatabase(this)
         val repository = MemoryRepository(database.airaDao())
         val friendBrain = AiraFriendBrain(repository)
@@ -92,40 +75,57 @@ class MainActivity : ComponentActivity() {
         viewModel = AiraViewModel(
             repository = repository,
             friendBrain = friendBrain,
+            preferences = preferences,
             voiceController = voiceController
         )
 
+        // Initial internet connectivity check
+        viewModel.checkInternet(this)
+
         setContent {
-            val isDarkTheme by viewModel.isDarkTheme.collectAsState()
+            val themeMode by viewModel.themeMode.collectAsState()
+            val isDarkTheme = when (themeMode) {
+                "DARK" -> true
+                "LIGHT" -> false
+                else -> isSystemInDarkTheme()
+            }
+
             AiraTheme(isDarkTheme = isDarkTheme) {
-                AiraApp(
-                    activity = this,
-                    viewModel = viewModel,
-                    isDarkTheme = isDarkTheme
-                )
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    AiraMainApp(
+                        activity = this,
+                        viewModel = viewModel
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-fun AiraApp(
+fun AiraMainApp(
     activity: ComponentActivity,
-    viewModel: AiraViewModel,
-    isDarkTheme: Boolean
+    viewModel: AiraViewModel
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    var selectedTab by remember { mutableIntStateOf(0) }
-    var showPermissionWindow by remember { mutableStateOf(false) }
+    var currentScreen by remember { mutableStateOf(AppDestination.CHAT) }
+    var showScreenShareSheet by remember { mutableStateOf(false) }
     var permissionsList by remember { mutableStateOf(PermissionManager.getAllPermissions(context)) }
 
-    // Recheck permissions whenever the app resumes
+    // Recheck permissions and internet on resume
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 permissionsList = PermissionManager.getAllPermissions(context)
+                viewModel.checkInternet(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -135,22 +135,20 @@ fun AiraApp(
     }
 
     // State collections
-    val statusBanner by viewModel.statusBanner.collectAsState()
-    val isAccessibilityEnabled by viewModel.isAccessibilityConnected.collectAsState()
-    val isExecuting by viewModel.isExecuting.collectAsState()
-    val screenSnapshot by viewModel.screenSnapshot.collectAsState()
-    val commandInput by viewModel.commandInput.collectAsState()
     val chatMessages by viewModel.chatMessages.collectAsState()
+    val commandInput by viewModel.commandInput.collectAsState()
+    val isGeneratingResponse by viewModel.isGeneratingResponse.collectAsState()
+    val isInternetConnected by viewModel.isInternetConnected.collectAsState()
+    val showNoInternetDialog by viewModel.showNoInternetDialog.collectAsState()
+    val savedApiKey by viewModel.savedApiKey.collectAsState()
+    val effectiveApiKey by viewModel.effectiveApiKey.collectAsState()
+    val isScreenShareActive by viewModel.isScreenShareActive.collectAsState()
+    val isScreenSharePaused by viewModel.isScreenSharePaused.collectAsState()
+    val latestScreenBitmap by viewModel.latestScreenBitmap.collectAsState()
     val voiceState by viewModel.voiceState.collectAsState()
     val audioRms by viewModel.audioRms.collectAsState()
-
     val isMuted by viewModel.isMuted.collectAsState()
-    val isOnlineMode by viewModel.isOnlineMode.collectAsState()
-    val effectiveApiKey by viewModel.effectiveApiKey.collectAsState()
-
-    val memories by viewModel.memories.collectAsState()
-    val auditLogs by viewModel.auditLogs.collectAsState()
-    val routines by viewModel.routines.collectAsState()
+    val themeMode by viewModel.themeMode.collectAsState()
 
     // Permission launcher for Voice Audio Recording
     val audioPermissionLauncher = rememberLauncherForActivityResult(
@@ -165,187 +163,45 @@ fun AiraApp(
     // Permission launcher for Notifications
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { _ ->
+    ) {
         permissionsList = PermissionManager.getAllPermissions(context)
     }
 
-    // Predictive back handler
-    BackHandler(enabled = selectedTab != 0 || showPermissionWindow) {
-        if (showPermissionWindow) {
-            showPermissionWindow = false
+    // MediaProjection screen capture launcher
+    val screenCaptureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+            ScreenCaptureService.start(context, result.resultCode, result.data!!)
+            Toast.makeText(context, "Aira Screen Share Started", Toast.LENGTH_SHORT).show()
         } else {
-            selectedTab = 0
+            Toast.makeText(context, "Screen share permission was denied", Toast.LENGTH_SHORT).show()
         }
     }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
-        bottomBar = {
-            NavigationBar(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .height(68.dp)
-                    .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline,
-                        RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
-                    )
-                    .testTag("aira_bottom_navigation"),
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 8.dp
-            ) {
-                val activeColor = if (isDarkTheme) AiraCyan else AiraPurple
-
-                NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    icon = {
-                        Icon(
-                            imageVector = if (selectedTab == 0) Icons.Filled.Memory else Icons.Outlined.Memory,
-                            contentDescription = "Console",
-                            modifier = Modifier.size(22.dp)
-                        )
-                    },
-                    label = { Text("Friend Aira", fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimary,
-                        selectedTextColor = activeColor,
-                        indicatorColor = activeColor,
-                        unselectedIconColor = TextMuted,
-                        unselectedTextColor = TextMuted
-                    ),
-                    modifier = Modifier.testTag("nav_console")
-                )
-
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    icon = {
-                        Icon(
-                            imageVector = if (selectedTab == 1) Icons.AutoMirrored.Filled.Chat else Icons.AutoMirrored.Outlined.Chat,
-                            contentDescription = "Chat",
-                            modifier = Modifier.size(22.dp)
-                        )
-                    },
-                    label = { Text("Chat", fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimary,
-                        selectedTextColor = activeColor,
-                        indicatorColor = activeColor,
-                        unselectedIconColor = TextMuted,
-                        unselectedTextColor = TextMuted
-                    ),
-                    modifier = Modifier.testTag("nav_chat")
-                )
-
-                NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    icon = {
-                        Icon(
-                            imageVector = if (selectedTab == 2) Icons.Filled.Bolt else Icons.Outlined.Bolt,
-                            contentDescription = "Routines",
-                            modifier = Modifier.size(22.dp)
-                        )
-                    },
-                    label = { Text("Tasks", fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimary,
-                        selectedTextColor = activeColor,
-                        indicatorColor = activeColor,
-                        unselectedIconColor = TextMuted,
-                        unselectedTextColor = TextMuted
-                    ),
-                    modifier = Modifier.testTag("nav_routines")
-                )
-
-                NavigationBarItem(
-                    selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 },
-                    icon = {
-                        Icon(
-                            imageVector = if (selectedTab == 3) Icons.Filled.Shield else Icons.Outlined.Shield,
-                            contentDescription = "Audit",
-                            modifier = Modifier.size(22.dp)
-                        )
-                    },
-                    label = { Text("Privacy", fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimary,
-                        selectedTextColor = activeColor,
-                        indicatorColor = activeColor,
-                        unselectedIconColor = TextMuted,
-                        unselectedTextColor = TextMuted
-                    ),
-                    modifier = Modifier.testTag("nav_audit")
-                )
-            }
+    // Back handler
+    BackHandler(enabled = currentScreen != AppDestination.CHAT || showScreenShareSheet) {
+        if (showScreenShareSheet) {
+            showScreenShareSheet = false
+        } else {
+            currentScreen = AppDestination.CHAT
         }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            when (selectedTab) {
-                0 -> MainConsoleScreen(
-                    statusBanner = statusBanner,
-                    isDarkTheme = isDarkTheme,
-                    onToggleTheme = { viewModel.toggleTheme() },
-                    isMuted = isMuted,
-                    onToggleMute = { viewModel.toggleMute() },
-                    isOnlineMode = isOnlineMode,
-                    onToggleOnlineMode = { viewModel.toggleOnlineMode() },
-                    effectiveApiKey = effectiveApiKey,
-                    onSetCustomApiKey = { viewModel.setCustomApiKey(it) },
-                    isAccessibilityEnabled = isAccessibilityEnabled,
-                    isExecuting = isExecuting,
-                    screenSnapshot = screenSnapshot,
-                    commandInput = commandInput,
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        when (currentScreen) {
+            AppDestination.CHAT -> {
+                ChatScreen(
                     chatMessages = chatMessages,
-                    voiceState = voiceState,
-                    audioRms = audioRms,
-                    grantedPermissionsCount = permissionsList.count { it.isGranted },
-                    totalPermissionsCount = permissionsList.size,
-                    onOpenPermissionWindow = { showPermissionWindow = true },
+                    commandInput = commandInput,
                     onCommandChange = { viewModel.onCommandInputChange(it) },
                     onSubmitCommand = { prompt ->
                         viewModel.submitCommand(prompt, activity)
                     },
-                    onVoiceToggle = {
-                        if (voiceState == VoiceState.LISTENING) {
-                            viewModel.stopVoiceCommand()
-                        } else {
-                            val permissionCheck = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.RECORD_AUDIO
-                            )
-                            if (permissionCheck == PackageManager.PERMISSION_GRANTED) {
-                                viewModel.startVoiceCommand()
-                            } else {
-                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            }
-                        }
-                    },
-                    onAbortExecution = { viewModel.cancelExecution() },
-                    onOpenAccessibilitySettings = { viewModel.triggerAccessibilitySettings(context) },
-                    onOpenRoutines = { selectedTab = 2 },
-                    onScanScreenNow = { viewModel.summarizeScreenNow(activity) },
-                    onReadAllScreenSentences = { viewModel.readAllScreenSentences(activity) },
-                    onTouchElement = { element -> viewModel.touchScreenElement(element, activity) },
-                    onTouchCoordinates = { x, y -> viewModel.touchScreenCoordinates(x, y, activity) },
-                    onNavigateToChat = { selectedTab = 1 }
-                )
-
-                1 -> ChatScreen(
-                    chatMessages = chatMessages,
-                    commandInput = commandInput,
-                    onCommandChange = { viewModel.onCommandInputChange(it) },
-                    onSubmitCommand = { prompt -> viewModel.submitCommand(prompt, activity) },
+                    isGeneratingResponse = isGeneratingResponse,
+                    isInternetConnected = isInternetConnected,
+                    isKeyConfigured = effectiveApiKey.isNotBlank(),
+                    isScreenShareActive = isScreenShareActive,
                     voiceState = voiceState,
                     audioRms = audioRms,
                     onVoiceToggle = {
@@ -363,33 +219,25 @@ fun AiraApp(
                             }
                         }
                     },
-                    isOnlineMode = isOnlineMode,
                     isMuted = isMuted,
                     onToggleMute = { viewModel.toggleMute() },
-                    isDarkTheme = isDarkTheme,
-                    onOpenScreenShare = { selectedTab = 0 }
-                )
-
-                2 -> AutomationRoutinesSheet(
-                    routines = routines,
-                    onRunRoutine = { routine ->
-                        viewModel.submitCommand(routine.triggerPhrase, activity)
-                        selectedTab = 0
-                    },
-                    onToggleRoutine = { viewModel.toggleRoutine(it) }
-                )
-
-                3 -> AuditLogScreen(
-                    auditLogs = auditLogs
+                    onOpenScreenShare = { showScreenShareSheet = true },
+                    onOpenSettings = { currentScreen = AppDestination.SETTINGS },
+                    onRetryLastRequest = { viewModel.retryLastRequest(activity) }
                 )
             }
 
-            // Dedicated System Permission Gateway Window Modal
-            if (showPermissionWindow) {
-                PermissionCenterModal(
+            AppDestination.SETTINGS -> {
+                SettingsScreen(
+                    apiKey = savedApiKey,
+                    onSaveApiKey = { viewModel.saveApiKey(it) },
+                    onClearApiKey = { viewModel.clearApiKey() },
+                    themeMode = themeMode,
+                    onSelectThemeMode = { viewModel.setThemeMode(it) },
                     permissions = permissionsList,
-                    onDismiss = { showPermissionWindow = false },
-                    onRequestAudio = {
+                    isInternetConnected = isInternetConnected,
+                    isScreenShareActive = isScreenShareActive,
+                    onRequestMicrophone = {
                         audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     },
                     onRequestNotification = {
@@ -397,22 +245,62 @@ fun AiraApp(
                             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                         }
                     },
-                    onGrantAll = {
-                        val ungranted = permissionsList.filter { !it.isGranted }
-                        if (ungranted.any { it.id == "audio" }) {
-                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        } else if (ungranted.any { it.id == "notifications" } && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        } else if (ungranted.any { it.id == "accessibility" }) {
-                            PermissionManager.openAccessibilitySettings(context)
-                        } else if (ungranted.any { it.id == "overlay" }) {
-                            PermissionManager.openOverlaySettings(context)
-                        } else {
-                            PermissionManager.openAppSettings(context)
+                    onRequestScreenShare = {
+                        val projectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
+                        projectionManager?.let {
+                            screenCaptureLauncher.launch(it.createScreenCaptureIntent())
                         }
+                    },
+                    onStopScreenShare = {
+                        viewModel.stopScreenShare(context)
+                    },
+                    onOpenAccessibilitySettings = {
+                        viewModel.triggerAccessibilitySettings(context)
+                    },
+                    onOpenAppSettings = {
+                        PermissionManager.openAppSettings(context)
+                    },
+                    onClearChatHistory = {
+                        viewModel.clearChatHistory()
+                    },
+                    onNavigateBack = {
+                        currentScreen = AppDestination.CHAT
                     }
                 )
             }
+        }
+
+        // Live Screen Share Modal Sheet
+        if (showScreenShareSheet) {
+            ScreenShareSheet(
+                isScreenShareActive = isScreenShareActive,
+                isPaused = isScreenSharePaused,
+                latestBitmap = latestScreenBitmap,
+                onStartScreenShare = {
+                    val projectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
+                    projectionManager?.let {
+                        screenCaptureLauncher.launch(it.createScreenCaptureIntent())
+                    }
+                },
+                onPauseScreenShare = { viewModel.pauseScreenShare(context) },
+                onResumeScreenShare = { viewModel.resumeScreenShare(context) },
+                onStopScreenShare = { viewModel.stopScreenShare(context) },
+                onAnalyzeScreen = { query ->
+                    viewModel.submitCommand(query, activity)
+                },
+                onReadAllSentences = {
+                    viewModel.submitCommand("Screen par jitne sentences likhe hain sab read karke explain karo", activity)
+                },
+                onDismiss = { showScreenShareSheet = false }
+            )
+        }
+
+        // Mandatory No Internet Modal Dialog (Requirement 3)
+        if (showNoInternetDialog) {
+            NoInternetDialog(
+                onRetry = { viewModel.retryConnection(context) },
+                onDismiss = { viewModel.dismissNoInternetDialog() }
+            )
         }
     }
 }

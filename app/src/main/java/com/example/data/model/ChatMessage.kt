@@ -13,5 +13,8 @@ data class ChatMessage(
     val text: String,
     val timestamp: Long = System.currentTimeMillis(),
     val actionSummary: String? = null,
-    val actionType: String? = null
+    val actionType: String? = null,
+    val isError: Boolean = false,
+    val canRetry: Boolean = false,
+    val hasScreenAttachment: Boolean = false
 )

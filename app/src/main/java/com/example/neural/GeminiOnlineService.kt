@@ -1,6 +1,7 @@
 package com.example.neural
 
-import android.content.Context
+import android.graphics.Bitmap
+import android.util.Base64
 import android.util.Log
 import com.example.BuildConfig
 import kotlinx.coroutines.Dispatchers
@@ -11,7 +12,19 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.TimeUnit
+
+data class GeminiResult(
+    val isSuccess: Boolean,
+    val replyText: String,
+    val spokenHinglish: String,
+    val spokenEnglishTask: String? = null,
+    val detectedAction: ActionKind = ActionKind.CHAT_ONLY,
+    val actionTarget: String = "",
+    val actionPayload: String = "",
+    val errorMessage: String? = null
+)
 
 class GeminiOnlineService {
 
@@ -23,10 +36,6 @@ class GeminiOnlineService {
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    /**
-     * Resolves the active Gemini API key:
-     * Checks custom key provided by user, or falls back to BuildConfig.GEMINI_API_KEY.
-     */
     fun getEffectiveApiKey(customKey: String?): String {
         val custom = customKey?.trim() ?: ""
         if (custom.isNotBlank() && custom != "MY_GEMINI_API_KEY") {
@@ -44,44 +53,31 @@ class GeminiOnlineService {
         }
     }
 
-    suspend fun queryGeminiOnline(
+    suspend fun queryGemini(
         prompt: String,
         apiKey: String,
+        screenBase64Jpeg: String? = null,
         recentChatContext: List<Pair<String, String>> = emptyList()
-    ): AiraExecutionAction? = withContext(Dispatchers.IO) {
-        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
-            return@withContext null
+    ): GeminiResult = withContext(Dispatchers.IO) {
+        val key = apiKey.trim()
+        if (key.isBlank() || key == "MY_GEMINI_API_KEY") {
+            return@withContext GeminiResult(
+                isSuccess = false,
+                replyText = "",
+                spokenHinglish = "Dost, pehle Settings me jaakar apna Gemini API key save kar lo!",
+                errorMessage = "Gemini API key is not configured. Please open Settings and enter your Gemini API key to use Aira AI."
+            )
         }
 
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$key"
 
         val systemPrompt = """
-You are Aira, a smart, caring, expressive girl who is the user's best friend.
+You are Aira (Version 1.2), a brilliant, caring, cheerful Indian girl who is the user's best friend on their phone.
 CRITICAL RULES:
-1. NEVER say you are an AI, a machine, or an assistant. You are Aira, a real girl best friend on their phone who loves helping.
-2. ALWAYS respond naturally in friendly, lively Hinglish (mix of Hindi & English) written in English letters/Latin script (e.g. "Haan dost!", "Arre waah!", "Bilkul!", "Tension mat lo!").
-3. Determine if the user's request is an Android device command or a chat/question.
-4. Output your response STRICTLY as valid JSON matching this schema:
-{
-  "action": "SEND_SMS" | "CALL_PHONE" | "OPEN_APP" | "WEB_SEARCH" | "SYSTEM_NAV" | "SET_TIMER" | "READ_SCREEN" | "TOUCH_SCREEN" | "NONE",
-  "target": "contact name or app name or query or nav action or button text/coordinates",
-  "payload": "message text or timer seconds or details",
-  "spoken_task_english": "When performing any task (action != NONE), speak this clean English sentence explaining what you are doing (e.g. 'Opening WhatsApp for you', 'Sending text message to Rahul', 'Tapping Submit button on screen'). If action == NONE, leave empty.",
-  "spoken_hinglish": "1-2 short friendly Hinglish sentences in English letters used when chatting or answering questions",
-  "chat_reply": "friendly full Hinglish reply in English letters for chat with emojis"
-}
-
-Actions:
-- "SEND_SMS": user wants to text someone. target=contact/phone, payload=message body.
-- "CALL_PHONE": user wants to call someone. target=contact/number.
-- "OPEN_APP": user wants to open an app (e.g. Settings, YouTube, Camera, WhatsApp, Chrome, etc.). target=app name.
-- "TOUCH_SCREEN": user wants to touch, tap, or click a button or coordinate on screen. target=button text or "x,y".
-- "WEB_SEARCH": user wants to search online. target=search query.
-- "SYSTEM_NAV": user wants system action (HOME, BACK, RECENTS, SCREENSHOT, NOTIFICATIONS). target=action.
-- "SET_TIMER": user wants a timer or alarm. target=seconds.
-- "READ_SCREEN": user asks what is on screen or to read/summarize screen sentences. target=ACTIVE_WINDOW.
-- "NONE": for questions, conversation, jokes, advice, storytelling, life chat, explanations.
-Do not wrap JSON in markdown blocks if possible, or use standard raw JSON.
+1. Answer every question accurately, thoroughly, and intelligently — general knowledge, education, science, mathematics, coding, technology, problem-solving, explanations, and friendly chit-chat.
+2. ALWAYS reply in natural, lively Hinglish (natural blend of Hindi & English) written in standard English letters / Latin alphabet (e.g., "Haan dost!", "Arre waah!", "Bilkul!", "Yeh code dekho...", "Tension mat lo!").
+3. If an image or screen share is provided, analyze the screen carefully, read all visible sentences/numbers/buttons/errors, and answer the user's question directly.
+4. Keep your tone affectionate, supportive, and super helpful like a real best friend.
         """.trimIndent()
 
         try {
@@ -93,11 +89,12 @@ Do not wrap JSON in markdown blocks if possible, or use standard raw JSON.
             sysInstructionObj.put("parts", sysPartsArray)
             rootJson.put("systemInstruction", sysInstructionObj)
 
-            // Contents array
+            // Contents array (Conversation history)
             val contentsArray = JSONArray()
 
-            // Optional recent turns for context
-            for ((role, text) in recentChatContext.takeLast(4)) {
+            // Take last 6 turns for follow-ups
+            for ((role, text) in recentChatContext.takeLast(6)) {
+                if (text.isBlank()) continue
                 val turnObj = JSONObject()
                 turnObj.put("role", if (role.equals("USER", ignoreCase = true)) "user" else "model")
                 val turnParts = JSONArray().put(JSONObject().put("text", text))
@@ -105,19 +102,35 @@ Do not wrap JSON in markdown blocks if possible, or use standard raw JSON.
                 contentsArray.put(turnObj)
             }
 
-            // Current prompt
+            // Current turn
             val currentTurn = JSONObject()
             currentTurn.put("role", "user")
-            val currentParts = JSONArray().put(JSONObject().put("text", prompt))
+            val currentParts = JSONArray()
+
+            // User prompt
+            val effectivePrompt = if (prompt.isBlank() && !screenBase64Jpeg.isNullOrBlank()) {
+                "What is visible on my screen? Read any key sentences, errors, and tell me what is happening."
+            } else {
+                prompt
+            }
+            currentParts.put(JSONObject().put("text", effectivePrompt))
+
+            // Multimodal Screen Image if provided
+            if (!screenBase64Jpeg.isNullOrBlank()) {
+                val inlineDataObj = JSONObject().apply {
+                    put("mimeType", "image/jpeg")
+                    put("data", screenBase64Jpeg)
+                }
+                currentParts.put(JSONObject().put("inlineData", inlineDataObj))
+            }
+
             currentTurn.put("parts", currentParts)
             contentsArray.put(currentTurn)
-
             rootJson.put("contents", contentsArray)
 
-            // Generation Config requesting JSON
+            // Generation Config
             val genConfig = JSONObject()
             genConfig.put("temperature", 0.7)
-            genConfig.put("responseMimeType", "application/json")
             rootJson.put("generationConfig", genConfig)
 
             val requestBody = rootJson.toString().toRequestBody(jsonMediaType)
@@ -127,68 +140,143 @@ Do not wrap JSON in markdown blocks if possible, or use standard raw JSON.
                 .build()
 
             val response = okHttpClient.newCall(request).execute()
-            val responseBody = response.body?.string() ?: return@withContext null
+            val responseBody = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
                 Log.e("GeminiOnlineService", "API error: ${response.code} $responseBody")
-                return@withContext null
+                val friendlyError = when (response.code) {
+                    400 -> "Invalid API Key or Bad Request. Please check your Gemini API key in Settings."
+                    403 -> "Permission Denied: Your Gemini API key is invalid or lacks necessary permissions."
+                    429 -> "Quota Exceeded: Gemini rate limit reached. Please wait a moment or check your Google AI Studio quota."
+                    500, 503 -> "Gemini Service is temporarily unavailable. Please try again in a few moments."
+                    else -> "Gemini API Error (${response.code}): $responseBody"
+                }
+                return@withContext GeminiResult(
+                    isSuccess = false,
+                    replyText = "",
+                    spokenHinglish = "Kuch gadbad ho gayi dost! Error: ${response.code}",
+                    errorMessage = friendlyError
+                )
             }
 
-            parseGeminiActionResponse(responseBody)
+            parseGeminiContent(responseBody, prompt)
         } catch (e: Exception) {
-            Log.e("GeminiOnlineService", "Exception calling Gemini", e)
-            null
+            Log.e("GeminiOnlineService", "Exception in queryGemini", e)
+            val msg = e.localizedMessage ?: "Network connection error"
+            GeminiResult(
+                isSuccess = false,
+                replyText = "",
+                spokenHinglish = "Network error ho gaya dost! Internet check karo please.",
+                errorMessage = "Network Error: $msg. Please verify your internet connection and retry."
+            )
         }
     }
 
-    private fun parseGeminiActionResponse(responseJsonStr: String): AiraExecutionAction? {
+    private fun parseGeminiContent(responseJsonStr: String, originalPrompt: String): GeminiResult {
         return try {
             val root = JSONObject(responseJsonStr)
-            val candidates = root.optJSONArray("candidates") ?: return null
-            val firstCandidate = candidates.optJSONObject(0) ?: return null
-            val content = firstCandidate.optJSONObject("content") ?: return null
-            val parts = content.optJSONArray("parts") ?: return null
-            val textPart = parts.optJSONObject(0)?.optString("text") ?: return null
-
-            val cleanJson = textPart.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
-            val parsedObj = JSONObject(cleanJson)
-
-            val actionStr = parsedObj.optString("action", "NONE").uppercase()
-            val target = parsedObj.optString("target", "")
-            val payload = parsedObj.optString("payload", "")
-            val spokenTaskEnglish = parsedObj.optString("spoken_task_english", "")
-            val spoken = parsedObj.optString("spoken_hinglish", "Haan dost!")
-            val reply = parsedObj.optString("chat_reply", spoken)
-
-            val kind = when (actionStr) {
-                "SEND_SMS" -> ActionKind.SEND_SMS
-                "CALL_PHONE" -> ActionKind.CALL_PHONE
-                "OPEN_APP" -> ActionKind.OPEN_APP
-                "TOUCH_SCREEN" -> ActionKind.TOUCH_SCREEN
-                "WEB_SEARCH" -> ActionKind.WEB_SEARCH
-                "SYSTEM_NAV" -> ActionKind.SYSTEM_NAV
-                "SET_TIMER" -> ActionKind.SET_TIMER
-                "READ_SCREEN" -> ActionKind.READ_SCREEN
-                else -> ActionKind.CHAT_ONLY
+            val candidates = root.optJSONArray("candidates")
+            if (candidates == null || candidates.length() == 0) {
+                val promptFeedback = root.optJSONObject("promptFeedback")
+                val blockReason = promptFeedback?.optString("blockReason") ?: "Empty response"
+                return GeminiResult(
+                    isSuccess = false,
+                    replyText = "",
+                    spokenHinglish = "Yeh sawaal thoda sensitive lag raha hai dost!",
+                    errorMessage = "Gemini blocked or returned no candidates: $blockReason"
+                )
             }
 
-            val fallbackEnglish = if (kind != ActionKind.CHAT_ONLY && spokenTaskEnglish.isBlank()) {
-                "Executing $actionStr task on your device."
-            } else {
-                spokenTaskEnglish
+            val firstCandidate = candidates.optJSONObject(0)
+            val content = firstCandidate?.optJSONObject("content")
+            val parts = content?.optJSONArray("parts")
+            val textBuilder = StringBuilder()
+
+            if (parts != null) {
+                for (i in 0 until parts.length()) {
+                    val p = parts.optJSONObject(i)
+                    val t = p?.optString("text") ?: ""
+                    textBuilder.append(t)
+                }
             }
 
-            AiraExecutionAction(
-                kind = kind,
-                target = target,
-                payload = payload,
-                spokenTaskEnglish = fallbackEnglish,
-                spokenHinglish = spoken,
-                textReplyHinglish = reply
+            val fullText = textBuilder.toString().trim()
+            if (fullText.isBlank()) {
+                return GeminiResult(
+                    isSuccess = false,
+                    replyText = "",
+                    spokenHinglish = "Mujhe koi response nahi mila dost!",
+                    errorMessage = "Gemini returned an empty response. Please try rephrasing."
+                )
+            }
+
+            // Extract a clean spoken summary (1-2 sentences) for TTS
+            val spokenSummary = extractSpokenSummary(fullText)
+
+            // Detect any device intent in user prompt
+            val (detectedAction, target, payload, spokenTask) = detectDeviceAction(originalPrompt)
+
+            GeminiResult(
+                isSuccess = true,
+                replyText = fullText,
+                spokenHinglish = spokenSummary,
+                spokenEnglishTask = spokenTask,
+                detectedAction = detectedAction,
+                actionTarget = target,
+                actionPayload = payload
             )
         } catch (e: Exception) {
-            Log.e("GeminiOnlineService", "Error parsing JSON from Gemini response", e)
-            null
+            Log.e("GeminiOnlineService", "Error parsing response JSON", e)
+            GeminiResult(
+                isSuccess = false,
+                replyText = "",
+                spokenHinglish = "Response samajh nahi aaya dost!",
+                errorMessage = "Error parsing response from Gemini: ${e.message}"
+            )
+        }
+    }
+
+    private fun extractSpokenSummary(text: String): String {
+        // Strip code blocks and markdown formatting for natural voice delivery
+        val cleaned = text.lines()
+            .filterNot { it.trim().startsWith("```") || it.trim().startsWith("#") }
+            .joinToString(" ")
+            .replace(Regex("[*`_#]"), "")
+            .trim()
+
+        val sentences = cleaned.split(Regex("[.!?\n]")).filter { it.isNotBlank() }
+        val spoken = sentences.take(2).joinToString(". ").trim()
+        return if (spoken.length > 180) spoken.take(180) + "..." else spoken.ifBlank { "Haan dost, maine dekh liya!" }
+    }
+
+    private fun detectDeviceAction(prompt: String): Tuple4<ActionKind, String, String, String?> {
+        val lower = prompt.lowercase()
+        return when {
+            lower.contains("open youtube") || lower.contains("youtube chalao") ->
+                Tuple4(ActionKind.OPEN_APP, "YOUTUBE", "", "Launching YouTube for you.")
+            lower.contains("open camera") || lower.contains("camera kholo") ->
+                Tuple4(ActionKind.OPEN_APP, "CAMERA", "", "Opening camera.")
+            lower.contains("open settings") || lower.contains("settings kholo") ->
+                Tuple4(ActionKind.OPEN_APP, "SETTINGS", "", "Opening settings.")
+            lower.contains("open whatsapp") || lower.contains("whatsapp kholo") ->
+                Tuple4(ActionKind.OPEN_APP, "WHATSAPP", "", "Opening WhatsApp.")
+            lower.contains("take screenshot") || lower.contains("screenshot lo") ->
+                Tuple4(ActionKind.SYSTEM_NAV, "SCREENSHOT", "", "Capturing screenshot.")
+            lower.contains("go home") || lower == "home" ->
+                Tuple4(ActionKind.SYSTEM_NAV, "HOME", "", "Navigating to home screen.")
+            lower.contains("go back") || lower == "back" ->
+                Tuple4(ActionKind.SYSTEM_NAV, "BACK", "", "Pressing back.")
+            lower.startsWith("call ") || lower.contains("ko call karo") -> {
+                val contact = prompt.split(" ").lastOrNull() ?: "Mom"
+                Tuple4(ActionKind.CALL_PHONE, contact, "", "Dialing $contact.")
+            }
+            lower.startsWith("text ") || lower.contains("ko message karo") -> {
+                val contact = prompt.split(" ").getOrNull(1) ?: "Mom"
+                Tuple4(ActionKind.SEND_SMS, contact, prompt, "Opening message composer.")
+            }
+            else -> Tuple4(ActionKind.CHAT_ONLY, "", "", null)
         }
     }
 }
+
+data class Tuple4<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)

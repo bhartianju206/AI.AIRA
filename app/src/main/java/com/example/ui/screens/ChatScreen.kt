@@ -1,5 +1,10 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,23 +29,28 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ScreenShare
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,7 +66,6 @@ import com.example.data.model.ChatMessage
 import com.example.data.model.MessageSender
 import com.example.ui.theme.AiraAmber
 import com.example.ui.theme.AiraCyan
-import androidx.compose.material.icons.filled.ScreenShare
 import com.example.ui.theme.AiraGreen
 import com.example.ui.theme.AiraPink
 import com.example.ui.theme.AiraPurple
@@ -72,14 +81,18 @@ fun ChatScreen(
     commandInput: String,
     onCommandChange: (String) -> Unit,
     onSubmitCommand: (String?) -> Unit,
+    isGeneratingResponse: Boolean,
+    isInternetConnected: Boolean,
+    isKeyConfigured: Boolean,
+    isScreenShareActive: Boolean,
     voiceState: VoiceState,
     audioRms: Float,
     onVoiceToggle: () -> Unit,
-    isOnlineMode: Boolean,
     isMuted: Boolean,
     onToggleMute: () -> Unit,
-    isDarkTheme: Boolean,
     onOpenScreenShare: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onRetryLastRequest: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -89,8 +102,8 @@ fun ChatScreen(
     val textPrimary = MaterialTheme.colorScheme.onBackground
     val textSecondary = MaterialTheme.colorScheme.onSurfaceVariant
 
-    // Auto-scroll to bottom on new message
-    LaunchedEffect(chatMessages.size) {
+    // Auto-scroll on new message or when generating starts
+    LaunchedEffect(chatMessages.size, isGeneratingResponse) {
         if (chatMessages.isNotEmpty()) {
             listState.animateScrollToItem(chatMessages.size - 1)
         }
@@ -101,16 +114,17 @@ fun ChatScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 14.dp)
+            .testTag("chat_screen")
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Chat Header with Logo & Status
+        // CLEAN TOP HEADER (Logo, "Aira AI v1.2", Status, Screen Share & Settings)
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("chat_header_card"),
+                .testTag("chat_top_header"),
             colors = CardDefaults.cardColors(containerColor = surfaceColor),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(20.dp),
             border = CardDefaults.outlinedCardBorder().copy(
                 brush = androidx.compose.ui.graphics.SolidColor(borderColor)
             )
@@ -118,17 +132,18 @@ fun ChatScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
+                // Left: Logo & Title
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Image(
                         painter = painterResource(id = R.drawable.ic_aira_logo),
-                        contentDescription = "Aira Avatar",
+                        contentDescription = "Aira AI Logo",
                         modifier = Modifier
                             .size(42.dp)
                             .clip(CircleShape)
@@ -141,62 +156,117 @@ fun ChatScreen(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                text = "Aira",
+                                text = "Aira AI",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = textPrimary
                             )
                             Box(
                                 modifier = Modifier
-                                    .size(7.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(AiraPink.copy(alpha = 0.18f))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "v1.2",
+                                    color = AiraPink,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        // Status indicator
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
                                     .clip(CircleShape)
-                                    .background(if (isOnlineMode) AiraGreen else AiraCyan)
+                                    .background(
+                                        if (!isInternetConnected) AiraAmber
+                                        else if (isKeyConfigured) AiraGreen
+                                        else AiraCyan
+                                    )
+                            )
+                            Text(
+                                text = if (!isInternetConnected) "No Internet"
+                                else if (isKeyConfigured) "Gemini 3.5 Ready"
+                                else "Key Required in Settings",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (!isInternetConnected) AiraAmber
+                                else if (isKeyConfigured) AiraGreen
+                                else AiraCyan,
+                                fontSize = 10.sp
                             )
                         }
-                        Text(
-                            text = if (isOnlineMode) "Online • Hindi Accent • Hinglish" else "Local Core • Hinglish",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isOnlineMode) AiraGreen else textSecondary,
-                            fontSize = 11.sp
-                        )
                     }
                 }
 
+                // Right: Action Buttons (Mute, Screen Share, Settings)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    // Mute Voice Button
+                    IconButton(
+                        onClick = onToggleMute,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(if (isMuted) AiraAmber.copy(alpha = 0.2f) else surfaceVariant)
+                            .border(1.dp, if (isMuted) AiraAmber else borderColor, CircleShape)
+                            .testTag("chat_mute_toggle_button")
+                    ) {
+                        Icon(
+                            imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                            contentDescription = if (isMuted) "Unmute Aira" else "Mute Aira",
+                            tint = if (isMuted) AiraAmber else AiraPink,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    // Screen Share Button
                     IconButton(
                         onClick = onOpenScreenShare,
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(36.dp)
                             .clip(CircleShape)
-                            .background(AiraCyan.copy(alpha = 0.2f))
-                            .border(1.dp, AiraCyan.copy(alpha = 0.6f), CircleShape)
+                            .background(
+                                if (isScreenShareActive) AiraCyan.copy(alpha = 0.3f)
+                                else surfaceVariant
+                            )
+                            .border(
+                                1.dp,
+                                if (isScreenShareActive) AiraCyan else borderColor,
+                                CircleShape
+                            )
                             .testTag("chat_screen_share_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.ScreenShare,
                             contentDescription = "Screen Share",
-                            tint = AiraCyan,
-                            modifier = Modifier.size(16.dp)
+                            tint = if (isScreenShareActive) AiraCyan else textPrimary,
+                            modifier = Modifier.size(17.dp)
                         )
                     }
 
+                    // Settings Button
                     IconButton(
-                        onClick = onToggleMute,
+                        onClick = onOpenSettings,
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(36.dp)
                             .clip(CircleShape)
-                            .background(if (isMuted) AiraAmber.copy(alpha = 0.2f) else surfaceVariant)
-                            .border(1.dp, if (isMuted) AiraAmber else borderColor, CircleShape)
-                            .testTag("chat_mute_button")
+                            .background(surfaceVariant)
+                            .border(1.dp, borderColor, CircleShape)
+                            .testTag("chat_settings_button")
                     ) {
                         Icon(
-                            imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                            contentDescription = if (isMuted) "Unmute" else "Mute",
-                            tint = if (isMuted) AiraAmber else AiraPink,
-                            modifier = Modifier.size(16.dp)
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = textPrimary,
+                            modifier = Modifier.size(17.dp)
                         )
                     }
                 }
@@ -225,7 +295,7 @@ fun ChatScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Aira sun rahi hai... (Speak now)",
+                            text = "Aira sun rahi hai... (Speak in Hindi or English)",
                             color = AiraGreen,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
@@ -250,7 +320,47 @@ fun ChatScreen(
             }
         }
 
-        // Chat Timeline
+        // Screen Share active pill
+        if (isScreenShareActive) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(AiraCyan.copy(alpha = 0.12f))
+                    .border(1.dp, AiraCyan.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                    .clickable(onClick = onOpenScreenShare)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ScreenShare,
+                        contentDescription = null,
+                        tint = AiraCyan,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = "Live Screen Share Active: Aira can see your screen",
+                        color = AiraCyan,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Text(
+                    text = "Controls →",
+                    color = AiraCyan,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // MAIN CHAT TIMELINE
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -260,11 +370,21 @@ fun ChatScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             items(chatMessages) { message ->
-                ChatBubble(message = message, isDarkTheme = isDarkTheme)
+                ChatBubbleItem(
+                    message = message,
+                    onRetry = onRetryLastRequest
+                )
+            }
+
+            // Typing / Thinking indicator when generating
+            if (isGeneratingResponse) {
+                item {
+                    TypingIndicatorBubble()
+                }
             }
         }
 
-        // Hinglish Quick Chips
+        // Quick Hinglish Chips
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -273,26 +393,24 @@ fun ChatScreen(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             ChatChip("Kaisi ho Aira?") { onSubmitCommand("Kaisi ho Aira?") }
-            ChatChip("Kya kar rahi ho?") { onSubmitCommand("Kya kar rahi ho?") }
-            ChatChip("Ek romantic joke sunao") { onSubmitCommand("Aira mujhe koi funny joke sunao") }
-            ChatChip("Mujhe thoda motivate karo") { onSubmitCommand("Aira mujhe motivate karo") }
-            ChatChip("YouTube chalao") { onSubmitCommand("YouTube chalao") }
-            ChatChip("Camera kholo") { onSubmitCommand("Camera open karo") }
-            ChatChip("Screen padh ke batao") { onSubmitCommand("Screen padh ke batao") }
+            ChatChip("Screen dekho kya likha hai") { onSubmitCommand("Screen dekh kar batao kya likha hai?") }
+            ChatChip("Ek funny joke sunao") { onSubmitCommand("Aira mujhe koi funny joke sunao") }
+            ChatChip("Explain photosynthesis") { onSubmitCommand("Can you explain photosynthesis simply?") }
+            ChatChip("Write a Python script") { onSubmitCommand("Write a Python script for web scraping") }
+            ChatChip("Open YouTube") { onSubmitCommand("Open YouTube") }
         }
 
-        // Chat Input Box
+        // CHAT INPUT BOX
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(22.dp))
                 .background(surfaceColor)
                 .border(
                     1.dp,
                     if (voiceState == VoiceState.LISTENING) AiraGreen
-                    else if (isDarkTheme) AiraCyan.copy(alpha = 0.45f)
-                    else AiraPurple.copy(alpha = 0.45f),
-                    RoundedCornerShape(20.dp)
+                    else borderColor,
+                    RoundedCornerShape(22.dp)
                 )
                 .padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -302,7 +420,8 @@ fun ChatScreen(
                 onValueChange = onCommandChange,
                 placeholder = {
                     Text(
-                        if (isOnlineMode) "Aira se kuch bhi pucho ya kaam bolo..." else "Hinglish me baat karo ya command do...",
+                        text = if (!isKeyConfigured) "Pehle Settings me Gemini API key daalo..."
+                        else "Aira se kuch bhi pucho ya kaam bolo...",
                         color = textSecondary,
                         fontSize = 12.sp
                     )
@@ -316,7 +435,8 @@ fun ChatScreen(
                     focusedTextColor = textPrimary,
                     unfocusedTextColor = textPrimary
                 ),
-                maxLines = 3
+                maxLines = 3,
+                enabled = !isGeneratingResponse
             )
 
             // Voice Mic Button
@@ -339,31 +459,30 @@ fun ChatScreen(
                 Icon(
                     imageVector = if (voiceState == VoiceState.LISTENING) Icons.Default.Stop else Icons.Default.Mic,
                     contentDescription = "Voice Input",
-                    tint = if (voiceState == VoiceState.LISTENING) AiraGreen else (if (isDarkTheme) AiraCyan else AiraPurple),
+                    tint = if (voiceState == VoiceState.LISTENING) AiraGreen else AiraPink,
                     modifier = Modifier.size(20.dp)
                 )
             }
 
             Spacer(modifier = Modifier.width(4.dp))
 
-            // Send Button
+            // Send Button (Disabled while generating to prevent duplicate requests)
             IconButton(
                 onClick = { onSubmitCommand(null) },
-                enabled = commandInput.isNotBlank(),
+                enabled = commandInput.isNotBlank() && !isGeneratingResponse,
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
                     .background(
-                        if (commandInput.isNotBlank()) {
-                            if (isDarkTheme) AiraCyan else AiraPurple
-                        } else surfaceVariant
+                        if (commandInput.isNotBlank() && !isGeneratingResponse) AiraPink
+                        else surfaceVariant
                     )
                     .testTag("chat_send_button")
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.Send,
                     contentDescription = "Send",
-                    tint = if (commandInput.isNotBlank()) Color.White else textSecondary,
+                    tint = if (commandInput.isNotBlank() && !isGeneratingResponse) Color.White else textSecondary,
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -374,9 +493,9 @@ fun ChatScreen(
 }
 
 @Composable
-private fun ChatBubble(
+private fun ChatBubbleItem(
     message: ChatMessage,
-    isDarkTheme: Boolean
+    onRetry: () -> Unit
 ) {
     val isUser = message.sender == MessageSender.USER
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
@@ -404,7 +523,7 @@ private fun ChatBubble(
 
         Box(
             modifier = Modifier
-                .fillMaxWidth(0.82f)
+                .fillMaxWidth(0.85f)
                 .clip(
                     RoundedCornerShape(
                         topStart = 16.dp,
@@ -414,15 +533,19 @@ private fun ChatBubble(
                     )
                 )
                 .background(
-                    if (isUser) {
-                        if (isDarkTheme) AiraPurple.copy(alpha = 0.35f) else AiraPurple.copy(alpha = 0.15f)
+                    if (message.isError) {
+                        AiraAmber.copy(alpha = 0.15f)
+                    } else if (isUser) {
+                        AiraPink.copy(alpha = 0.20f)
                     } else {
                         surfaceVariant
                     }
                 )
                 .border(
                     1.dp,
-                    if (isUser) AiraPurple.copy(alpha = 0.5f) else borderColor,
+                    if (message.isError) AiraAmber.copy(alpha = 0.6f)
+                    else if (isUser) AiraPink.copy(alpha = 0.45f)
+                    else borderColor,
                     RoundedCornerShape(16.dp)
                 )
                 .padding(12.dp)
@@ -434,10 +557,10 @@ private fun ChatBubble(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (isUser) "You" else "Aira 💕",
+                        text = if (message.isError) "Error ⚠" else if (isUser) "You" else "Aira AI 💕",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (isUser) AiraCyan else AiraPink,
+                        color = if (message.isError) AiraAmber else if (isUser) AiraPink else AiraCyan,
                         fontSize = 11.sp
                     )
                     Text(
@@ -468,13 +591,99 @@ private fun ChatBubble(
                             .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         Text(
-                            text = "✓ Completed: ${message.actionSummary}",
+                            text = "✓ Action: ${message.actionSummary}",
                             color = AiraGreen,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
+
+                if (message.isError && message.canRetry) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onRetry,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AiraAmber),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Retry Request", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TypingIndicatorBubble() {
+    val transition = rememberInfiniteTransition(label = "typing_dots")
+    val alpha by transition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start,
+        verticalAlignment = Alignment.Bottom
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.ic_aira_logo),
+            contentDescription = "Aira",
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .border(1.dp, AiraPink, CircleShape),
+            contentScale = ContentScale.Crop
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(16.dp))
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "Aira soch rahi hai",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(AiraPink.copy(alpha = alpha))
+                )
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(AiraCyan.copy(alpha = alpha))
+                )
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(AiraPurple.copy(alpha = alpha))
+                )
             }
         }
     }
