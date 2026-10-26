@@ -113,6 +113,7 @@ fun MainConsoleScreen(
     onReadAllScreenSentences: () -> Unit = {},
     onTouchElement: (String) -> Unit = {},
     onTouchCoordinates: (Float, Float) -> Unit = { _, _ -> },
+    onNavigateToChat: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -185,21 +186,15 @@ fun MainConsoleScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Box(
+                            Image(
+                                painter = painterResource(id = R.drawable.ic_aira_logo),
+                                contentDescription = "AIRA Logo",
                                 modifier = Modifier
-                                    .size(46.dp)
+                                    .size(48.dp)
                                     .clip(CircleShape)
-                                    .background(AiraPink.copy(alpha = 0.2f))
                                     .border(1.5.dp, AiraPink, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "A",
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = AiraPink,
-                                    fontSize = 22.sp
-                                )
-                            }
+                                contentScale = ContentScale.Crop
+                            )
                             Column {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -424,15 +419,163 @@ fun MainConsoleScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Live Friend Chat Log Card
+            // Dedicated Google API Key Column Card for Online Access
+            var inlineApiKey by remember(effectiveApiKey) { mutableStateOf(effectiveApiKey) }
+
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("friend_chat_card"),
+                    .testTag("google_api_key_card"),
                 colors = CardDefaults.cardColors(containerColor = surfaceColor),
                 shape = RoundedCornerShape(18.dp),
                 border = CardDefaults.outlinedCardBorder().copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(borderColor)
+                    brush = Brush.horizontalGradient(
+                        if (isOnlineMode && effectiveApiKey.isNotBlank())
+                            listOf(AiraGreen.copy(alpha = 0.6f), AiraCyan.copy(alpha = 0.6f))
+                        else
+                            listOf(AiraPurple.copy(alpha = 0.5f), AiraAmber.copy(alpha = 0.5f))
+                    )
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isOnlineMode) AiraGreen.copy(alpha = 0.2f) else AiraAmber.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Key,
+                                    contentDescription = "API Key",
+                                    tint = if (isOnlineMode) AiraGreen else AiraAmber,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "GOOGLE API KEY • ONLINE ACCESS",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isOnlineMode) AiraGreen else (if (isDarkTheme) AiraCyan else AiraPurple),
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp
+                                )
+                                Text(
+                                    text = if (effectiveApiKey.isNotBlank()) "Gemini 3.5 Active & Ready" else "Insert key for full online intelligence",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (effectiveApiKey.isNotBlank()) AiraGreen else textSecondary,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        // Toggle online button
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isOnlineMode) AiraGreen.copy(alpha = 0.2f) else surfaceElevated)
+                                .border(1.dp, if (isOnlineMode) AiraGreen else borderColor, RoundedCornerShape(10.dp))
+                                .clickable(onClick = onToggleOnlineMode)
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                                .testTag("online_mode_card_toggle")
+                        ) {
+                            Text(
+                                text = if (isOnlineMode) "ONLINE ✓" else "OFFLINE",
+                                color = if (isOnlineMode) AiraGreen else textSecondary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // Direct input column to insert/paste the Google API Key
+                    OutlinedTextField(
+                        value = inlineApiKey,
+                        onValueChange = { inlineApiKey = it },
+                        label = { Text("Insert Google API Key", fontSize = 12.sp) },
+                        placeholder = { Text("AIzaSy...", fontSize = 12.sp) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("inline_api_key_field"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = if (isOnlineMode) AiraGreen else AiraCyan,
+                            unfocusedBorderColor = borderColor,
+                            focusedTextColor = textPrimary,
+                            unfocusedTextColor = textPrimary
+                        ),
+                        singleLine = true,
+                        trailingIcon = {
+                            if (inlineApiKey.isNotBlank()) {
+                                IconButton(onClick = {
+                                    inlineApiKey = ""
+                                    onSetCustomApiKey("")
+                                }) {
+                                    Text("Clear", color = textSecondary, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Gives Aira online brain to perform tasks autonomously.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = textSecondary,
+                            fontSize = 10.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        Button(
+                            onClick = {
+                                onSetCustomApiKey(inlineApiKey.trim())
+                                if (!isOnlineMode && inlineApiKey.isNotBlank()) {
+                                    onToggleOnlineMode()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isDarkTheme) AiraCyan else AiraPurple
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.testTag("save_inline_api_key_btn")
+                        ) {
+                            Text("Save Key", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Dedicated Chat Gateway Card (Leading to dedicated Chat Section)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onNavigateToChat)
+                    .testTag("open_chat_section_card"),
+                colors = CardDefaults.cardColors(containerColor = surfaceColor),
+                shape = RoundedCornerShape(18.dp),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = Brush.horizontalGradient(
+                        listOf(AiraPurple.copy(alpha = 0.4f), AiraPink.copy(alpha = 0.4f))
+                    )
                 )
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
@@ -441,96 +584,56 @@ fun MainConsoleScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "CONVERSATION WITH AIRA",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isDarkTheme) AiraPink else AiraPurple,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
-                        )
-                        Text(
-                            text = if (isOnlineMode) "Google Gemini 3.5 Online" else "Local Hinglish",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isOnlineMode) AiraGreen else textSecondary,
-                            fontSize = 10.sp
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Image(
+                                painter = painterResource(id = R.drawable.ic_aira_logo),
+                                contentDescription = "Aira",
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .border(1.dp, AiraPink, CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                            Text(
+                                text = "CHAT WITH AIRA (DEDICATED SECTION)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isDarkTheme) AiraPink else AiraPurple,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(AiraPink.copy(alpha = 0.15f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text("Open Chat →", color = AiraPink, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                    // Chat messages list
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        chatMessages.takeLast(4).forEach { msg ->
-                            val isUser = msg.sender == MessageSender.USER
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.88f)
-                                        .clip(
-                                            RoundedCornerShape(
-                                                topStart = 14.dp,
-                                                topEnd = 14.dp,
-                                                bottomStart = if (isUser) 14.dp else 2.dp,
-                                                bottomEnd = if (isUser) 2.dp else 14.dp
-                                            )
-                                        )
-                                        .background(
-                                            if (isUser) {
-                                                if (isDarkTheme) AiraPurple.copy(alpha = 0.25f)
-                                                else AiraPurple.copy(alpha = 0.12f)
-                                            } else {
-                                                surfaceElevated
-                                            }
-                                        )
-                                        .border(
-                                            1.dp,
-                                            if (isUser) AiraPurple.copy(alpha = 0.4f) else borderColor,
-                                            RoundedCornerShape(14.dp)
-                                        )
-                                        .padding(10.dp)
-                                ) {
-                                    Column {
-                                        Text(
-                                            text = if (isUser) "You" else "Aira 💕",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isUser) AiraCyan else AiraPink,
-                                            fontSize = 10.sp
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = msg.text,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = textPrimary,
-                                            fontSize = 12.sp,
-                                            lineHeight = 17.sp
-                                        )
-                                        if (msg.actionSummary != null && msg.actionSummary != "NONE" && msg.actionSummary != "CHAT_ONLY") {
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .background(AiraGreen.copy(alpha = 0.15f))
-                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(
-                                                    text = "✓ Action Executed: ${msg.actionSummary}",
-                                                    color = AiraGreen,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.SemiBold
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    val lastMsg = chatMessages.lastOrNull()
+                    if (lastMsg != null) {
+                        Text(
+                            text = "${if (lastMsg.sender == MessageSender.USER) "You" else "Aira"}: ${lastMsg.text}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = textSecondary,
+                            maxLines = 2,
+                            fontSize = 12.sp
+                        )
+                    } else {
+                        Text(
+                            text = "Aira is ready to talk in Hinglish with Hindi accent! Tap here to start chatting.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = textSecondary,
+                            fontSize = 12.sp
+                        )
                     }
                 }
             }

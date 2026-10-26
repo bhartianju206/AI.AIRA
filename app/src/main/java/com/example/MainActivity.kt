@@ -21,13 +21,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Memory
-import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -62,7 +62,7 @@ import com.example.security.PermissionManager
 import com.example.ui.screens.AuditLogScreen
 import com.example.ui.screens.AutomationRoutinesSheet
 import com.example.ui.screens.MainConsoleScreen
-import com.example.ui.screens.MemoryVaultScreen
+import com.example.ui.screens.ChatScreen
 import com.example.ui.screens.PermissionCenterModal
 import com.example.ui.theme.AiraCyan
 import com.example.ui.theme.AiraPurple
@@ -226,12 +226,12 @@ fun AiraApp(
                     onClick = { selectedTab = 1 },
                     icon = {
                         Icon(
-                            imageVector = if (selectedTab == 1) Icons.Filled.Psychology else Icons.Outlined.Psychology,
-                            contentDescription = "Memory Vault",
+                            imageVector = if (selectedTab == 1) Icons.AutoMirrored.Filled.Chat else Icons.AutoMirrored.Outlined.Chat,
+                            contentDescription = "Chat",
                             modifier = Modifier.size(22.dp)
                         )
                     },
-                    label = { Text("Memory", fontSize = 11.sp) },
+                    label = { Text("Chat", fontSize = 11.sp) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.onPrimary,
                         selectedTextColor = activeColor,
@@ -239,7 +239,7 @@ fun AiraApp(
                         unselectedIconColor = TextMuted,
                         unselectedTextColor = TextMuted
                     ),
-                    modifier = Modifier.testTag("nav_vault")
+                    modifier = Modifier.testTag("nav_chat")
                 )
 
                 NavigationBarItem(
@@ -337,18 +337,37 @@ fun AiraApp(
                     onScanScreenNow = { viewModel.summarizeScreenNow(activity) },
                     onReadAllScreenSentences = { viewModel.readAllScreenSentences(activity) },
                     onTouchElement = { element -> viewModel.touchScreenElement(element, activity) },
-                    onTouchCoordinates = { x, y -> viewModel.touchScreenCoordinates(x, y, activity) }
+                    onTouchCoordinates = { x, y -> viewModel.touchScreenCoordinates(x, y, activity) },
+                    onNavigateToChat = { selectedTab = 1 }
                 )
 
-                1 -> MemoryVaultScreen(
-                    memories = memories,
-                    biometricPolicy = "Relaxed",
-                    onSetBiometricPolicy = { },
-                    onSaveMemory = { key, rawValue, summary, category ->
-                        viewModel.saveMemory(key, rawValue, summary, category)
+                1 -> ChatScreen(
+                    chatMessages = chatMessages,
+                    commandInput = commandInput,
+                    onCommandChange = { viewModel.onCommandInputChange(it) },
+                    onSubmitCommand = { prompt -> viewModel.submitCommand(prompt, activity) },
+                    voiceState = voiceState,
+                    audioRms = audioRms,
+                    onVoiceToggle = {
+                        if (voiceState == VoiceState.LISTENING) {
+                            viewModel.stopVoiceCommand()
+                        } else {
+                            val permissionCheck = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO
+                            )
+                            if (permissionCheck == PackageManager.PERMISSION_GRANTED) {
+                                viewModel.startVoiceCommand()
+                            } else {
+                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        }
                     },
-                    onDeleteMemory = { viewModel.deleteMemory(it) },
-                    onPurgeVault = { viewModel.purgeVault() }
+                    isOnlineMode = isOnlineMode,
+                    isMuted = isMuted,
+                    onToggleMute = { viewModel.toggleMute() },
+                    isDarkTheme = isDarkTheme,
+                    onOpenScreenShare = { selectedTab = 0 }
                 )
 
                 2 -> AutomationRoutinesSheet(
