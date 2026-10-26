@@ -17,16 +17,19 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Surface
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -40,6 +43,7 @@ import com.example.data.db.AiraDatabase
 import com.example.neural.AiraFriendBrain
 import com.example.screenshare.ScreenCaptureService
 import com.example.security.PermissionManager
+import com.example.ui.components.AiraDrawerContent
 import com.example.ui.components.NoInternetDialog
 import com.example.ui.screens.ChatScreen
 import com.example.ui.screens.ScreenShareSheet
@@ -48,6 +52,7 @@ import com.example.ui.theme.AiraTheme
 import com.example.ui.viewmodel.AiraViewModel
 import com.example.voice.VoiceCommandController
 import com.example.voice.VoiceState
+import kotlinx.coroutines.launch
 
 enum class AppDestination {
     CHAT,
@@ -94,8 +99,7 @@ class MainActivity : ComponentActivity() {
                 Surface(
                     modifier = Modifier
                         .fillMaxSize()
-                        .statusBarsPadding()
-                        .navigationBarsPadding(),
+                        .statusBarsPadding(),
                     color = MaterialTheme.colorScheme.background
                 ) {
                     AiraMainApp(
@@ -115,6 +119,8 @@ fun AiraMainApp(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
     var currentScreen by remember { mutableStateOf(AppDestination.CHAT) }
     var showScreenShareSheet by remember { mutableStateOf(false) }
@@ -149,6 +155,8 @@ fun AiraMainApp(
     val audioRms by viewModel.audioRms.collectAsState()
     val isMuted by viewModel.isMuted.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
+    val sessions by viewModel.sessions.collectAsState()
+    val currentSessionId by viewModel.currentSessionId.collectAsState()
 
     // Permission launcher for Voice Audio Recording
     val audioPermissionLauncher = rememberLauncherForActivityResult(
@@ -180,9 +188,11 @@ fun AiraMainApp(
     }
 
     // Back handler
-    BackHandler(enabled = currentScreen != AppDestination.CHAT || showScreenShareSheet) {
+    BackHandler(enabled = drawerState.isOpen || currentScreen != AppDestination.CHAT || showScreenShareSheet) {
         if (showScreenShareSheet) {
             showScreenShareSheet = false
+        } else if (drawerState.isOpen) {
+            scope.launch { drawerState.close() }
         } else {
             currentScreen = AppDestination.CHAT
         }
@@ -191,40 +201,73 @@ fun AiraMainApp(
     Box(modifier = Modifier.fillMaxSize()) {
         when (currentScreen) {
             AppDestination.CHAT -> {
-                ChatScreen(
-                    chatMessages = chatMessages,
-                    commandInput = commandInput,
-                    onCommandChange = { viewModel.onCommandInputChange(it) },
-                    onSubmitCommand = { prompt ->
-                        viewModel.submitCommand(prompt, activity)
-                    },
-                    isGeneratingResponse = isGeneratingResponse,
-                    isInternetConnected = isInternetConnected,
-                    isKeyConfigured = effectiveApiKey.isNotBlank(),
-                    isScreenShareActive = isScreenShareActive,
-                    voiceState = voiceState,
-                    audioRms = audioRms,
-                    onVoiceToggle = {
-                        if (voiceState == VoiceState.LISTENING) {
-                            viewModel.stopVoiceCommand()
-                        } else {
-                            val permissionCheck = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.RECORD_AUDIO
-                            )
-                            if (permissionCheck == PackageManager.PERMISSION_GRANTED) {
-                                viewModel.startVoiceCommand()
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
+                        AiraDrawerContent(
+                            sessions = sessions,
+                            currentSessionId = currentSessionId,
+                            onSelectSession = { id ->
+                                viewModel.selectSession(id)
+                                scope.launch { drawerState.close() }
+                            },
+                            onNewChat = {
+                                viewModel.createNewChat()
+                                scope.launch { drawerState.close() }
+                            },
+                            onDeleteSession = { id ->
+                                viewModel.deleteSession(id)
+                            },
+                            onOpenSettings = {
+                                currentScreen = AppDestination.SETTINGS
+                                scope.launch { drawerState.close() }
+                            },
+                            onOpenScreenShare = {
+                                showScreenShareSheet = true
+                                scope.launch { drawerState.close() }
+                            },
+                            isScreenShareActive = isScreenShareActive
+                        )
+                    }
+                ) {
+                    ChatScreen(
+                        chatMessages = chatMessages,
+                        commandInput = commandInput,
+                        onCommandChange = { viewModel.onCommandInputChange(it) },
+                        onSubmitCommand = { prompt ->
+                            viewModel.submitCommand(prompt, activity)
+                        },
+                        onStopGeneration = { viewModel.stopGeneration() },
+                        isGeneratingResponse = isGeneratingResponse,
+                        isInternetConnected = isInternetConnected,
+                        isKeyConfigured = effectiveApiKey.isNotBlank(),
+                        isScreenShareActive = isScreenShareActive,
+                        voiceState = voiceState,
+                        audioRms = audioRms,
+                        onVoiceToggle = {
+                            if (voiceState == VoiceState.LISTENING) {
+                                viewModel.stopVoiceCommand()
                             } else {
-                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                val permissionCheck = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECORD_AUDIO
+                                )
+                                if (permissionCheck == PackageManager.PERMISSION_GRANTED) {
+                                    viewModel.startVoiceCommand()
+                                } else {
+                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                }
                             }
-                        }
-                    },
-                    isMuted = isMuted,
-                    onToggleMute = { viewModel.toggleMute() },
-                    onOpenScreenShare = { showScreenShareSheet = true },
-                    onOpenSettings = { currentScreen = AppDestination.SETTINGS },
-                    onRetryLastRequest = { viewModel.retryLastRequest(activity) }
-                )
+                        },
+                        isMuted = isMuted,
+                        onToggleMute = { viewModel.toggleMute() },
+                        onOpenScreenShare = { showScreenShareSheet = true },
+                        onOpenDrawer = { scope.launch { drawerState.open() } },
+                        onNewChat = { viewModel.createNewChat() },
+                        onRetryLastRequest = { viewModel.retryLastRequest(activity) },
+                        onClearChat = { viewModel.clearChatHistory() }
+                    )
+                }
             }
 
             AppDestination.SETTINGS -> {
